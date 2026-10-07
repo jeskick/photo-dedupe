@@ -1,0 +1,15 @@
+---
+description: 修改验证通过后自动提交并推送到 GitHub
+alwaysApply: true
+---
+
+# 验证通过后推送
+
+在本仓库里，一次修改已经检查或验证、没有已知问题之后，立刻提交并推送到 `origin` 的当前分支。
+
+- 不要改 git config，不要 force push，不要跳过 hooks。
+- 不要提交 `.venv/`、密钥或本机临时文件。
+- 提交说明用中文，写清为什么改。
+- 验证失败，或改动还没完成，不要推。
+- 推送用一次性参数提供身份和凭据，不写入 git config：`git -c user.name=jeskick -c user.email=jeskick@users.noreply.github.com`，以及 `git -c credential.helper="!gh auth git-credential"`。
+- 推送完成后告诉用户提交说明和 https://github.com/jeskick/photo-dedupe 。
