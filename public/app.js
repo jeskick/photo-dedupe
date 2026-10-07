@@ -191,21 +191,22 @@ function renderGroup(group) {
   const enable = h("input", { type: "checkbox", class: "group-enable", checked: group.enabled !== false });
   enable.dataset.role = "enable";
   const title = group.kind === "similar" ? `${group.files.length} 个画面相似` : `${group.files.length} 个内容相同`;
-  const openButton = h("button", { type: "button", class: "ghost", text: group.open ? "收起" : "选择留下哪一份" });
+  const openButton = h("button", { type: "button", class: "ghost compact", text: group.open ? "收起" : "展开", title: "选择留下哪一份" });
   openButton.dataset.action = "toggle";
-  const previewButton = h("button", { type: "button", class: "ghost", text: group.showPreview ? "关闭预览" : "对比预览" });
+  const previewButton = h("button", { type: "button", class: "ghost compact", text: group.showPreview ? "关预览" : "预览", title: "对比预览" });
   previewButton.dataset.action = "preview-group";
+  const summary = [
+    keeper ? `留下 ${keeper.name}` : "还没有留下的文件",
+    `删除 ${dropCount} 个`,
+    formatCapture(group.captureMs, group.subsecKnown),
+    group.kind === "similar" ? `画面差异 ${group.distance ?? 0}` : "内容一致",
+    `可释放 ${formatBytes(waste)}`,
+  ].join(" · ");
   const header = h("header", {}, [
-    h("label", { class: "check slim" }, [enable, document.createTextNode("清理这组")]),
-    h("div", {}, [
+    h("label", { class: "check slim" }, [enable, document.createTextNode("清理")]),
+    h("div", { class: "head-text" }, [
       h("h3", { text: title }),
-      h("div", { class: "meta" }, [
-        h("span", { text: keeper ? `留下 ${keeper.name}` : "还没有留下的文件" }),
-        h("span", { text: `删除 ${dropCount} 个` }),
-        h("span", { text: formatCapture(group.captureMs, group.subsecKnown) }),
-        h("span", { text: group.kind === "similar" ? `画面差异 ${group.distance ?? 0}` : "内容一致" }),
-        h("span", { text: `可释放 ${formatBytes(waste)}` }),
-      ]),
+      h("span", { class: "meta", text: summary, title: summary }),
     ]),
     h("div", { class: "head-actions" }, [previewButton, openButton]),
   ]);
@@ -244,25 +245,23 @@ function choiceControls(group, file) {
 }
 
 function revealButton(file) {
-  const reveal = h("button", { type: "button", class: "ghost", text: "打开位置" });
+  const reveal = h("button", { type: "button", class: "ghost compact", text: "位置", title: "打开位置" });
   reveal.dataset.action = "reveal";
   reveal.dataset.path = file.path;
   return reveal;
 }
 
 function renderFileRow(group, file) {
-  const mark = outcome(file);
-  const distance = file.role !== "keep" && file.distance != null ? ` · 差异 ${file.distance}` : "";
-  return h("div", { class: `file ${file.role}` }, [
+  const distance = file.role !== "keep" && file.distance != null ? `差异 ${file.distance}` : "";
+  const folder = h("span", { class: "folder", text: folderOf(file.path), title: file.path });
+  const name = h("span", { class: "name", text: file.name, title: file.path });
+  return h("div", { class: `file ${file.role}`, title: file.path }, [
     choiceControls(group, file),
-    h("div", { class: "file-main" }, [
-      h("div", { class: "name-line" }, [
-        h("span", { class: `tag ${mark.className}`, text: mark.text }),
-        h("span", { class: "name", text: `${folderOf(file.path)} · ${file.name} · ${formatBytes(file.size)}${distance}` }),
-      ]),
-      h("div", { class: "path", text: file.path }),
-    ]),
-    h("div", { class: "file-actions" }, [revealButton(file)]),
+    folder,
+    name,
+    h("span", { class: "size", text: formatBytes(file.size) }),
+    distance ? h("span", { class: "distance", text: distance }) : null,
+    revealButton(file),
   ]);
 }
 

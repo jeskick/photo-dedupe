@@ -163,44 +163,55 @@ label.stack, label.inline { display: block; margin: 0.7rem 0 0.3rem; color: var(
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 0.8rem;
+  padding: 0.35rem 0.45rem;
   display: flex;
   flex-direction: column;
-  gap: 0.7rem;
+  gap: 0.28rem;
 }
 .empty { color: var(--muted); padding: 2rem 0.4rem; }
-.group { flex: 0 0 auto; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.group { flex: 0 0 auto; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .group.similar { border-color: #e2c08a; }
 .group.off { opacity: 0.55; }
 .group header {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  align-items: flex-start;
-  padding: 0.7rem 0.8rem;
+  flex-wrap: nowrap;
+  gap: 0.45rem;
+  align-items: center;
+  padding: 0.18rem 0.45rem;
   background: #fbf8f2;
 }
-.group header .check { flex: none; margin-top: 0.15rem; }
-.group h3 { font-size: 0.98rem; font-weight: 650; }
-.meta { color: var(--muted); font-size: 0.84rem; display: flex; flex-wrap: wrap; gap: 0.35rem 0.7rem; margin-top: 0.15rem; }
-.head-actions { margin-left: auto; flex: none; display: flex; flex-wrap: wrap; gap: 0.35rem; justify-content: flex-end; }
+.group header .check { flex: none; margin: 0; white-space: nowrap; font-size: 0.8rem; }
+.group h3 { margin: 0; font-size: 0.86rem; font-weight: 650; white-space: nowrap; }
+.head-text { min-width: 0; flex: 1; display: flex; align-items: baseline; gap: 0.45rem; overflow: hidden; }
+.meta {
+  color: var(--muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.head-actions { margin-left: auto; flex: none; display: flex; gap: 0.25rem; }
+button.compact { padding: 0.08rem 0.45rem; font-size: 0.78rem; }
 .file {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 0.65rem;
+  display: flex;
   align-items: center;
-  padding: 0.45rem 0.75rem;
+  gap: 0.45rem;
+  padding: 0.08rem 0.45rem;
   border-top: 1px solid var(--line);
+  min-height: 1.7rem;
+  white-space: nowrap;
 }
 .file.keep { background: var(--keep); }
 .file.delete { background: var(--drop); }
 .file.spare { background: #fff; }
-.file-main { min-width: 0; }
 .name-line { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.2rem 0.4rem; }
-.file .name, .shot .name { font-weight: 650; }
-.file .path, .shot .path { color: var(--muted); font-size: 0.82rem; overflow-wrap: anywhere; }
-.file-actions { display: flex; gap: 0.35rem; }
-.choice { display: flex; flex-direction: row; gap: 0.65rem; align-items: center; font-size: 0.86rem; }
+.file .folder { flex: none; color: var(--muted); font-size: 0.78rem; max-width: 9rem; overflow: hidden; text-overflow: ellipsis; }
+.file .name { font-weight: 650; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.file .size, .file .distance { flex: none; color: var(--muted); font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+.shot .name { font-weight: 650; }
+.shot .path { color: var(--muted); font-size: 0.82rem; overflow-wrap: anywhere; }
+.choice { display: flex; flex-direction: row; gap: 0.4rem; align-items: center; font-size: 0.78rem; flex: none; }
 .pick { display: flex; align-items: center; gap: 0.3rem; white-space: nowrap; }
 .cards {
   display: grid;
@@ -299,7 +310,5 @@ label.stack, label.inline { display: block; margin: 0.7rem 0 0.3rem; color: var(
   .work { min-height: 70vh; margin-top: 0.8rem; }
   .toolbar { align-items: stretch; flex-direction: column; }
   .toolbar .actions { margin-left: 0; }
-  .file { grid-template-columns: minmax(0, 1fr) auto; }
-  .choice { grid-column: 1 / -1; }
-  .file-actions { grid-column: auto; }
+  .file .folder { max-width: 5.5rem; }
 }
