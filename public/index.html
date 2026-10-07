@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>相片视频查重</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="mark" aria-hidden="true"></div>
+    <div>
+      <h1>相片视频查重</h1>
+      <p>扫描本机文件夹里的单反和苹果手机照片、视频。确认要删的副本后移入回收站，不会直接删除。</p>
+    </div>
+  </header>
+  <main>
+    <section class="side">
+      <div class="side-scroll">
+      <h2>扫描目录</h2>
+      <div id="roots" class="roots"></div>
+      <div class="actions">
+        <button id="pick-multi" type="button">添加目录</button>
+        <button id="pick-one" type="button" class="ghost">添加一个</button>
+        <button id="clear-roots" type="button" class="ghost">清空</button>
+      </div>
+      <p id="root-note" class="note" hidden></p>
+
+      <h2>文件范围</h2>
+      <div class="option-grid">
+        <label class="check"><input id="kind-raw" type="checkbox" checked>RAW</label>
+        <label class="check"><input id="kind-jpeg" type="checkbox" checked>JPEG / TIFF</label>
+        <label class="check"><input id="kind-apple" type="checkbox" checked>HEIC</label>
+        <label class="check"><input id="kind-video" type="checkbox" checked>视频</label>
+      </div>
+
+      <h2>比对</h2>
+      <label class="check"><input name="name-mode" type="radio" value="normalized" checked>忽略副本、(1)、copy</label>
+      <label class="check"><input name="name-mode" type="radio" value="exact">文件名完全相同</label>
+      <label class="check"><input name="name-mode" type="radio" value="ignore">不看文件名</label>
+      <label class="check"><input id="without-time" type="checkbox" checked>无拍摄时间也比对</label>
+      <label class="check"><input id="similar" type="checkbox" checked>画面相似也查找</label>
+      <div class="field">
+        <span>时间容差</span>
+        <input id="tolerance" type="number" min="0" max="120" step="1" value="0" aria-label="拍摄时间容差（秒）">
+        <span>秒</span>
+      </div>
+      <div class="field">
+        <span>画面差异</span>
+        <input id="similar-distance" type="number" min="0" max="12" step="1" value="4" aria-label="画面差异上限">
+        <span>0–12</span>
+      </div>
+    </div>
+    <div class="side-foot">
+      <button id="scan" type="button">开始扫描</button>
+      <button id="stop" type="button" class="ghost" disabled>停止</button>
+    </div>
+    </section>
+    <section class="work">
+      <div id="status" class="status" aria-live="polite">添加目录后开始扫描。</div>
+      <div class="toolbar">
+        <div id="totals">尚未扫描</div>
+        <div class="filters" id="filters">
+          <button type="button" class="chip on" data-filter="all">全部</button>
+          <button type="button" class="chip" data-filter="exact">内容相同</button>
+          <button type="button" class="chip" data-filter="similar">画面相似</button>
+        </div>
+        <div class="actions">
+          <button id="toggle-open" type="button" class="ghost" disabled>全部展开</button>
+          <button id="export" type="button" class="ghost" disabled>导出清单</button>
+          <button id="delete" type="button" disabled>移入回收站</button>
+        </div>
+      </div>
+      <p id="legend" class="legend" hidden>每组用圆点选定留下的那一份。勾着「删除」的会进回收站，取消勾选则这份也留下。取消「清理这组」则整组不动。</p>
+      <label class="check slim sidecar"><input id="sidecars" type="checkbox" checked>删除时，把同名的 XMP / AAE 附属文件一起移入回收站</label>
+      <div id="results" class="results"></div>
+    </section>
+  </main>
+  <div id="modal" class="modal" hidden>
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <h2 id="modal-title">移入回收站</h2>
+      <p id="modal-text"></p>
+      <div class="actions">
+        <button id="modal-ok" type="button">移入回收站</button>
+        <button id="modal-cancel" type="button" class="ghost">取消</button>
+      </div>
+    </div>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>

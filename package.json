@@ -1,0 +1,13 @@
+{
+  "name": "photo-dedupe",
+  "private": true,
+  "type": "module",
+  "description": "查找并安全删除单反与苹果手机照片、视频中的重复文件",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test test/*.test.js"
+  }
+}

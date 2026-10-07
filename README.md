@@ -1,0 +1,38 @@
+# 相片视频查重
+
+在本机查找单反和苹果手机照片、视频里的重复文件，确认后移入回收站。页面只在这台电脑打开，照片不会上传。
+
+## 环境
+
+只支持 Windows 10 / 11。
+
+- Node.js 20 或更新版本：https://nodejs.org/
+- Python 3.12：https://www.python.org/downloads/
+
+Python 用来做画面相似比对，以及 HEIC、TIFF、RAW 的预览。没有 Python 时，字节完全相同的重复文件仍然可以查重。
+
+不需要额外安装 npm 包。
+
+## 在这台或另一台电脑上运行
+
+1. 安装 Node.js 和 Python 3.12。安装 Python 时勾选 “Add python.exe to PATH”。
+2. 把这个文件夹拷过去，或克隆仓库：
+
+```bat
+git clone https://github.com/jeskick/photo-dedupe.git
+cd photo-dedupe
+```
+
+3. 双击 `启动.bat`。
+
+第一次运行会在 `.venv` 里安装画面比对所需的库，需要联网，可能要几分钟。完成后浏览器会打开 http://127.0.0.1:8765/ 。关掉黑色窗口就会停止程序。
+
+也可以在文件夹里手动启动：
+
+```bat
+node src\server.js
+```
+
+## 使用
+
+添加要扫描的文件夹，开始扫描。每组默认留下一份，勾着「删除」的会进回收站。Windows、Program Files、AppData、游戏目录，以及图标、缓存、表情这类软件目录不会进入查重。
