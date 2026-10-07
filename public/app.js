@@ -169,6 +169,8 @@ function updateTotals() {
   document.querySelector("#export").disabled = !state.jobId || state.running;
   document.querySelector("#toggle-open").disabled = !state.groups.length;
   document.querySelector("#toggle-open").textContent = state.expandAll ? "全部收起" : "全部展开";
+  document.querySelector("#select-all").disabled = !state.groups.length;
+  document.querySelector("#select-none").disabled = !state.groups.length;
   document.querySelector("#legend").hidden = !state.groups.length;
   for (const button of document.querySelectorAll("#filters .chip")) {
     button.classList.toggle("on", button.dataset.filter === state.filter);
@@ -316,19 +318,45 @@ function renderCards(group) {
 
 const VIDEO_EXT = new Set([".mov", ".mp4", ".m4v", ".avi", ".mts", ".m2ts"]);
 
+function isVideoGroup(group) {
+  return group.files.length > 0 && group.files.every((file) => VIDEO_EXT.has(file.ext));
+}
+
 function visibleGroups() {
   return state.groups.filter(passesFilter).sort((a, b) => b.wasted - a.wasted);
+}
+
+function ensureLists() {
+  if (resultsEl.querySelector(".photo-list")) return;
+  const split = h("div", { class: "media-split" });
+  split.hidden = true;
+  resultsEl.append(h("div", { class: "photo-list" }), split, h("div", { class: "video-list" }));
+}
+
+function refreshSplit() {
+  const split = resultsEl.querySelector(".media-split");
+  if (!split) return;
+  const photos = resultsEl.querySelector(".photo-list")?.childElementCount || 0;
+  const videos = resultsEl.querySelector(".video-list")?.childElementCount || 0;
+  split.hidden = !(photos && videos);
 }
 
 function renderAll() {
   resultsEl.replaceChildren();
   const visible = visibleGroups();
+  const photos = visible.filter((group) => !isVideoGroup(group));
+  const videos = visible.filter((group) => isVideoGroup(group));
   if (!state.groups.length) {
     resultsEl.append(h("p", { class: "empty", text: state.jobId && !state.running ? "没有找到重复文件。" : "重复项会按组列在这里。每组默认留下一份，其余标为删除。" }));
   } else if (!visible.length) {
     resultsEl.append(h("p", { class: "empty", text: "这个分类里没有重复组。" }));
   } else {
-    for (const group of visible) resultsEl.append(renderGroup(group));
+    ensureLists();
+    const photoList = resultsEl.querySelector(".photo-list");
+    const videoList = resultsEl.querySelector(".video-list");
+    for (const group of photos) photoList.append(renderGroup(group));
+    for (const group of videos) videoList.append(renderGroup(group));
+    refreshSplit();
   }
   updateTotals();
 }
@@ -345,6 +373,7 @@ function upsertGroup(group) {
   const existing = document.getElementById(`group-${group.id}`);
   if (!passesFilter(group)) {
     existing?.remove();
+    refreshSplit();
     updateTotals();
     return;
   }
@@ -352,8 +381,11 @@ function upsertGroup(group) {
   if (existing) existing.replaceWith(card);
   else {
     if (resultsEl.querySelector(".empty")) resultsEl.replaceChildren();
-    resultsEl.append(card);
+    ensureLists();
+    const list = resultsEl.querySelector(isVideoGroup(group) ? ".video-list" : ".photo-list");
+    list.append(card);
   }
+  refreshSplit();
   updateTotals();
 }
 
@@ -567,6 +599,20 @@ document.querySelector("#filters").addEventListener("click", (event) => {
   state.filter = button.dataset.filter;
   renderAll();
 });
+function setGroupsEnabled(enabled) {
+  const targets = state.groups.filter(passesFilter);
+  for (const group of targets) group.enabled = enabled;
+  renderAll();
+  if (!state.jobId) return;
+  enqueue(async () => {
+    for (const group of targets) {
+      await postJson(`/api/jobs/${state.jobId}/group`, { groupId: group.id, enabled }).catch((error) => setStatus(error.message, true));
+    }
+  });
+}
+
+document.querySelector("#select-all").addEventListener("click", () => setGroupsEnabled(true));
+document.querySelector("#select-none").addEventListener("click", () => setGroupsEnabled(false));
 document.querySelector("#toggle-open").addEventListener("click", () => {
   state.expandAll = !state.expandAll;
   for (const group of state.groups) group.open = state.expandAll;

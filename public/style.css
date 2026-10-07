@@ -155,6 +155,9 @@ label.stack, label.inline { display: block; margin: 0.7rem 0 0.3rem; color: var(
   flex-direction: column;
   gap: 0.28rem;
 }
+.photo-list, .video-list { display: flex; flex-direction: column; gap: 0.28rem; }
+.media-split { height: 1px; margin: 0.2rem 0.15rem; background: var(--pine); flex: none; }
+.media-split[hidden] { display: none; }
 .empty { color: var(--muted); padding: 2rem 0.4rem; }
 .group { flex: 0 0 auto; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .group.similar { border-color: #e2c08a; }
