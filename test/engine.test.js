@@ -110,6 +110,11 @@ test("软件目录里的图标不参与查重，拍摄目录仍保留", async ()
   write(path.join(dir, "美图", "logo.jpg"), icon);
   write(path.join(dir, "美图", "images", "banner.jpg"), icon);
   write(path.join(dir, "相册", "icons", "favicon.jpg"), icon);
+  write(path.join(dir, "Adobe", "Adobe Photoshop 2020", "Photoshop.exe"), Buffer.from("MZ"));
+  write(path.join(dir, "Adobe", "Adobe Photoshop 2020", "Required", "CEP", "extensions", "com.adobe.ccx.fnft", "images", "products", "product-rune-LIRM.jpg"), icon);
+  write(path.join(dir, "便携工具", "tool.exe"), Buffer.from("MZ"));
+  write(path.join(dir, "便携工具", "data", "products", "icon.jpg"), icon);
+  write(path.join(dir, "便携工具", "DCIM", "KEEP_2002.jpg"), buildJpeg("2020:01:02 03:04:06", "12", "kept-photo"));
   try {
     const result = await runScan({
       roots: [dir],
@@ -119,10 +124,12 @@ test("软件目录里的图标不参与查重，拍摄目录仍保留", async ()
       matchWithoutTime: true,
       similar: false,
     });
-    assert.equal(result.filesScanned, 2);
+    assert.equal(result.filesScanned, 3);
     assert.equal(result.groups, 1);
     assert.ok(result.softwareSkipped >= 2);
     assert.deepEqual(result.found[0].files.map((file) => file.name).sort(), ["IMG_1001 (1).jpg", "IMG_1001.jpg"]);
+    const scanned = result.found.flatMap((group) => group.files.map((file) => file.path));
+    assert.equal(scanned.some((item) => item.includes("product-rune")), false);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

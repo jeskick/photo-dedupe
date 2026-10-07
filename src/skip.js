@@ -105,16 +105,50 @@ const DRIVE_ROOT_NAMES = new Set([
   "$winreagent",
 ]);
 
+const PHOTO_DIR_NAMES = new Set([
+  "dcim",
+  "camera",
+  "cameras",
+  "100media",
+  "100apple",
+  "照片",
+  "相机",
+  "相册",
+  "wechat files",
+]);
+
+const APP_INCLUDES = [
+  "photoshop",
+  "lightroom",
+  "premiere",
+  "illustrator",
+  "indesign",
+  "acrobat",
+  "after effects",
+  "media encoder",
+  "creative cloud",
+];
+
 function partsOf(fullPath) {
   return path.win32.normalize(String(fullPath || "")).split(/[\\/]/).filter(Boolean).map((part) => part.toLowerCase());
+}
+
+function pathLooksLikeInstall(parts) {
+  const joined = parts.join("\\");
+  if (joined.includes("\\cep\\extensions\\") || joined.includes("\\cdn-assets\\")) return true;
+  return parts.some((part) => part === "adobe" || part === "cdn-assets" || part.startsWith("com.adobe.") || APP_INCLUDES.some((marker) => part.includes(marker)));
 }
 
 export function isSoftwareBoundary(fullPath) {
   const parts = partsOf(fullPath);
   const name = parts[parts.length - 1] || "";
-  if (SKIP_NAMES.has(name)) return true;
+  if (SKIP_NAMES.has(name) || pathLooksLikeInstall(parts)) return true;
   const atDriveRoot = parts.length === 2 && parts[0].endsWith(":");
   return atDriveRoot && DRIVE_ROOT_NAMES.has(name);
+}
+
+export function isPersonalPhotoDir(name) {
+  return PHOTO_DIR_NAMES.has(String(name || "").toLowerCase());
 }
 
 export function directoryHasProgram(names) {

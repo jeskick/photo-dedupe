@@ -8,7 +8,7 @@ import { clusterByCapture, markOrigins, nameKey, orderForKeep, pregroupKey, with
 import { phashFiles } from "./phash.js";
 import { pruneRoots } from "./roots.js";
 import { captureBuckets, clusterPhash, hammingHex } from "./similar.js";
-import { isBundledAssetName, isSoftwareBoundary, directoryHasProgram } from "./skip.js";
+import { isPersonalPhotoDir, isSoftwareBoundary, directoryHasProgram } from "./skip.js";
 
 export class ScanCancelled extends Error {
   constructor() {
@@ -87,7 +87,7 @@ function walkMedia(roots, extensions, isCancelled, onFile, onProgress) {
       const full = path.join(dir, entry.name);
       if (entry.isSymbolicLink()) continue;
       if (entry.isDirectory()) {
-        if (isSoftwareBoundary(full) || (bundled && isBundledAssetName(entry.name))) softwareSkipped += 1;
+        if (isSoftwareBoundary(full) || (bundled && !isPersonalPhotoDir(entry.name))) softwareSkipped += 1;
         else stack.push(full);
         continue;
       }

@@ -5,8 +5,9 @@ import { directoryHasProgram, isBundledAssetName, isSoftwareBoundary } from "../
 test("跳过系统和软件自带的目录，保留拍摄目录", () => {
   assert.equal(isSoftwareBoundary("C:\\Windows"), true);
   assert.equal(isSoftwareBoundary("C:\\Windows\\Web\\Wallpaper"), true);
-  assert.equal(isSoftwareBoundary("C:\\Program Files\\Adobe"), false);
-  assert.equal(isSoftwareBoundary("C:\\Program Files"), true);
+  assert.equal(isSoftwareBoundary("C:\\Program Files\\Adobe"), true);
+  assert.equal(isSoftwareBoundary("D:\\Adobe\\Adobe Photoshop 2020\\Required\\CEP\\extensions\\com.adobe.ccx.fnft\\images\\products"), true);
+  assert.equal(isSoftwareBoundary("D:\\Photos\\2024\\DCIM"), false);
   assert.equal(isSoftwareBoundary("D:\\Program Files (x86)"), true);
   assert.equal(isSoftwareBoundary("C:\\Users\\me\\AppData"), true);
   assert.equal(isSoftwareBoundary("C:\\Users\\me\\AppData\\Local\\Temp\\photo"), false);
