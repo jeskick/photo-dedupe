@@ -1,5 +1,5 @@
 import path from "node:path";
-import { familyOf } from "./extensions.js";
+import { familyOf, isRawExt, isRenderedStillExt } from "./extensions.js";
 import { exactKey, isCopyName, normalizeKey } from "./filename.js";
 
 export function nameKey(filename, mode) {
@@ -10,6 +10,26 @@ export function nameKey(filename, mode) {
 
 export function pregroupKey(file, mode) {
   return `${file.size}\0${familyOf(file.ext)}\0${nameKey(file.name, mode)}`;
+}
+
+/** 同一文件夹里同名的 RAW 和 JPG/TIFF，是相机同时保存的两种格式。 */
+export function isCameraRawJpegPair(a, b) {
+  if (!a || !b || a === b) return false;
+  const aRaw = isRawExt(a.ext);
+  const bRaw = isRawExt(b.ext);
+  if (aRaw === bRaw) return false;
+  if (!(aRaw ? isRenderedStillExt(b.ext) : isRenderedStillExt(a.ext))) return false;
+  if (exactKey(a.name) !== exactKey(b.name)) return false;
+  return path.dirname(a.path).toLowerCase() === path.dirname(b.path).toLowerCase();
+}
+
+/** 把同目录 RAW+JPG 从重复组里拆开。只剩一对对照时，这一组不再算重复。 */
+export function withoutCameraPairs(files) {
+  const paired = files.some((file, index) => files.slice(index + 1).some((other) => isCameraRawJpegPair(file, other)));
+  if (!paired) return [files];
+  const raws = files.filter((file) => isRawExt(file.ext));
+  const rendered = files.filter((file) => !isRawExt(file.ext));
+  return [raws, rendered].filter((group) => group.length >= 2);
 }
 
 export function sameCapture(a, b, toleranceSec) {

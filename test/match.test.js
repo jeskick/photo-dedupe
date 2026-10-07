@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { clusterByCapture, markOrigins, orderForKeep, sameCapture } from "../src/match.js";
+import { clusterByCapture, isCameraRawJpegPair, markOrigins, orderForKeep, sameCapture, withoutCameraPairs } from "../src/match.js";
 
 function file(partial) {
   return {
@@ -51,4 +51,17 @@ test("标出原始文件和后来复制的文件", () => {
   assert.equal(files.find((item) => item.name.includes("(1)")).origin, "copy");
   assert.equal(files.find((item) => item.path.startsWith("E:\\备份")).origin, "copy");
   assert.equal(files.find((item) => item.path.startsWith("E:\\同时")).origin, "same");
+});
+
+test("同目录同名的 RAW 和 JPG 不是重复", () => {
+  const jpg = { path: "D:\\DCIM\\IMG_1.jpg", name: "IMG_1.jpg", ext: ".jpg" };
+  const raw = { path: "D:\\DCIM\\IMG_1.CR2", name: "IMG_1.CR2", ext: ".cr2" };
+  const copy = { path: "D:\\备份\\IMG_1.jpg", name: "IMG_1.jpg", ext: ".jpg" };
+  const otherRaw = { path: "D:\\DCIM\\IMG_2.CR2", name: "IMG_2.CR2", ext: ".cr2" };
+  assert.equal(isCameraRawJpegPair(jpg, raw), true);
+  assert.equal(isCameraRawJpegPair(raw, copy), false);
+  assert.equal(withoutCameraPairs([jpg, raw]).length, 0);
+  assert.deepEqual(withoutCameraPairs([jpg, raw, copy]).map((group) => group.map((file) => file.path)), [["D:\\DCIM\\IMG_1.jpg", "D:\\备份\\IMG_1.jpg"]]);
+  assert.equal(withoutCameraPairs([jpg, otherRaw]).length, 1);
+  assert.equal(withoutCameraPairs([jpg, otherRaw])[0].length, 2);
 });

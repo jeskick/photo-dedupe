@@ -35,4 +35,12 @@ export function isVideoExt(ext) {
   return EXT_GROUPS.video.includes(String(ext || "").toLowerCase());
 }
 
+export function isRawExt(ext) {
+  return EXT_GROUPS.dslrRaw.includes(String(ext || "").toLowerCase());
+}
+
+export function isRenderedStillExt(ext) {
+  return EXT_GROUPS.dslrJpeg.includes(String(ext || "").toLowerCase());
+}
+
 export const SIDECAR_EXTS = [".xmp", ".aae", ".dop", ".pp3", ".on1"];

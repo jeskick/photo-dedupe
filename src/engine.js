@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { isVideoExt } from "./extensions.js";
 import { readCapture } from "./metadata.js";
-import { clusterByCapture, markOrigins, nameKey, orderForKeep, pregroupKey } from "./match.js";
+import { clusterByCapture, markOrigins, nameKey, orderForKeep, pregroupKey, withoutCameraPairs } from "./match.js";
 import { phashFiles } from "./phash.js";
 import { pruneRoots } from "./roots.js";
 import { captureBuckets, clusterPhash, hammingHex } from "./similar.js";
@@ -222,6 +222,7 @@ export async function runScan(options) {
     hashTotal: 0,
     hashBytes: 0,
     metaBytes: 0,
+    cameraPairsSkipped: 0,
     current: "",
     nestedRoots: nested,
     invalidRoots: invalid,
@@ -408,20 +409,26 @@ export async function runScan(options) {
     const mediaByKey = new Map(media.map((file) => [file.pathKey, file]));
     for (const bucket of buckets) {
       for (const cluster of clusterPhash(bucket, maxDistance)) {
-        const fresh = cluster.filter((file) => !claimed.has(file.pathKey));
-        const anchors = [...new Set(cluster.map((file) => claimed.get(file.pathKey)).filter(Boolean))];
+        const parts = withoutCameraPairs(cluster);
+        progress.cameraPairsSkipped += cluster.length - parts.reduce((sum, part) => sum + part.length, 0);
+        for (const part of parts) {
+        const fresh = part.filter((file) => !claimed.has(file.pathKey));
+        const anchors = [...new Set(part.map((file) => claimed.get(file.pathKey)).filter(Boolean))];
         if (!fresh.length) continue;
         if (anchors.length === 1) {
           const group = anchors[0];
           const keep = group.files.find((file) => file.role === "keep") || group.files[0];
           const keepMedia = mediaByKey.get(keep.pathKey);
           if (keepMedia?.phash) keep.phash = keepMedia.phash;
+          let added = 0;
           for (const file of fresh) {
             const published = publishFile(file, "delete");
             published.distance = keep.phash ? hammingHex(keep.phash, file.phash) : null;
             group.files.push(published);
             claimed.set(file.pathKey, group);
+            added += 1;
           }
+          if (!added) continue;
           markOrigins(group.files);
           group.kind = "similar";
           group.maxDistance = maxDistance;
@@ -431,13 +438,14 @@ export async function runScan(options) {
           continue;
         }
         if (anchors.length > 1 && fresh.length < 2) continue;
-        const members = anchors.length > 1 ? fresh : cluster;
+        const members = anchors.length > 1 ? fresh : part;
         const group = makeGroup(members, seq, { kind: "similar", maxDistance });
         seq += 1;
         confirmed.push(group);
         for (const file of group.files) claimed.set(file.pathKey, group);
         progress.groups = confirmed.length;
         onGroup?.(group);
+        }
       }
     }
   }
@@ -458,6 +466,7 @@ export async function runScan(options) {
     errors: walked.errors,
     hardlinksSkipped: walked.hardlinksSkipped,
     softwareSkipped: walked.softwareSkipped,
+    cameraPairsSkipped: progress.cameraPairsSkipped,
     nestedRoots: nested,
     invalidRoots: invalid,
     similarError: progress.similarError || null,

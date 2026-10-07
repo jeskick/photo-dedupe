@@ -445,6 +445,7 @@ function finishScan(summary, error) {
     if (summary.candidates != null) parts.push(`其中 ${summary.candidates} 个文件大小和文件名相同，只读取了这些文件的拍摄信息。`);
     if (summary.hardlinksSkipped) parts.push(`跳过硬链接 ${summary.hardlinksSkipped} 个。`);
     if (summary.softwareSkipped) parts.push(`已跳过 ${summary.softwareSkipped} 个软件目录，其中的图标和缓存图片不参与查重。`);
+    if (summary.cameraPairsSkipped) parts.push(`已排除 ${summary.cameraPairsSkipped} 个同目录同名的 RAW 与 JPG，它们是一次拍摄的两种格式。`);
     if (summary.nestedRoots?.length) parts.push(`已跳过位于其他所选目录内的 ${summary.nestedRoots.length} 个文件夹。`);
     if (summary.invalidRoots?.length) parts.push(`无法打开：${summary.invalidRoots.join("、")}`);
     if (summary.errors?.length) parts.push(`${summary.errors.length} 个路径读取失败。`);

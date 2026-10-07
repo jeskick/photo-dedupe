@@ -3,9 +3,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { extensionsFor } from "../src/extensions.js";
 import { runScan } from "../src/engine.js";
 import { planDeletions } from "../src/delete.js";
+import { pythonExecutable } from "../src/phash.js";
 import { buildJpeg, buildMp4 } from "./builders.js";
 
 const allKinds = extensionsFor({ dslrRaw: true, dslrJpeg: true, applePhoto: true, video: true });
@@ -121,6 +123,52 @@ test("软件目录里的图标不参与查重，拍摄目录仍保留", async ()
     assert.equal(result.groups, 1);
     assert.ok(result.softwareSkipped >= 2);
     assert.deepEqual(result.found[0].files.map((file) => file.name).sort(), ["IMG_1001 (1).jpg", "IMG_1001.jpg"]);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("同目录同名的 JPG 和 CR2 不算重复，另一处的 JPG 副本仍然算", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "photo-dedupe-rawjpg-"));
+  const maker = path.join(dir, "make.py");
+  fs.writeFileSync(maker, `
+from pathlib import Path
+from PIL import Image, ImageDraw
+import sys
+root = Path(sys.argv[1])
+shot = root / "DCIM"
+backup = root / "备份"
+shot.mkdir()
+backup.mkdir()
+
+def save(folder, name, quality):
+    image = Image.new("RGB", (240, 160), "white")
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((20, 20, 200, 130), fill=(180, 30, 30))
+    exif = Image.Exif()
+    exif[36867] = "2020:01:02 03:04:05"
+    image.save(folder / name, quality=quality, exif=exif)
+
+save(shot, "IMG_0001.jpg", 95)
+save(backup, "IMG_0001.jpg", 40)
+(shot / "IMG_0001.CR2").write_bytes((shot / "IMG_0001.jpg").read_bytes())
+`);
+  const made = spawnSync(pythonExecutable(), [maker, dir], { encoding: "utf8" });
+  assert.equal(made.status, 0, made.stderr || made.stdout);
+  try {
+    const result = await runScan({
+      roots: [dir],
+      extensions: allKinds,
+      nameMode: "normalized",
+      toleranceSec: 2,
+      matchWithoutTime: true,
+      similar: true,
+      similarDistance: 4,
+    });
+    assert.equal(result.similarError, null);
+    assert.equal(result.groups, 1);
+    assert.deepEqual(result.found[0].files.map((file) => path.extname(file.path).toLowerCase()).sort(), [".jpg", ".jpg"]);
+    assert.ok(result.cameraPairsSkipped >= 1);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
