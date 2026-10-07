@@ -39,34 +39,15 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
 button.ghost:hover { background: #fff; }
 button.wide { width: 100%; }
-h1, h2, p { margin: 0; }
-h1 { font-size: 1.45rem; font-weight: 680; letter-spacing: -0.02em; }
+h2, p { margin: 0; }
 h2 { font-size: 0.92rem; margin: 1.1rem 0 0.45rem; }
-.top {
-  display: flex;
-  gap: 0.9rem;
-  align-items: center;
-  padding: 1rem 1.25rem 0.8rem;
-}
-.top p { color: var(--muted); max-width: 62rem; line-height: 1.45; margin-top: 0.2rem; }
-.mark {
-  width: 42px;
-  height: 42px;
-  flex: none;
-  border-radius: 12px;
-  background:
-    linear-gradient(#fff, #fff) 8px 10px / 22px 22px no-repeat,
-    linear-gradient(#d7efe3, #d7efe3) 14px 6px / 22px 22px no-repeat,
-    var(--pine);
-  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.35);
-}
 main {
   flex: 1;
   min-height: 0;
   display: grid;
   grid-template-columns: 360px 1fr;
   gap: 0.8rem;
-  padding: 0 1rem 1rem;
+  padding: 0.6rem 1rem 1rem;
 }
 .side, .work {
   background: var(--paper);
