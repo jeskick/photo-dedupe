@@ -54,11 +54,13 @@
     </div>
     <div class="side-foot">
       <button id="scan" type="button">开始扫描</button>
-      <button id="stop" type="button" class="ghost" disabled>停止</button>
     </div>
     </section>
     <section class="work">
-      <div id="status" class="status" aria-live="polite">添加目录后开始扫描。</div>
+      <div id="status" class="status" aria-live="polite">
+        <span id="status-text">添加目录后开始扫描。</span>
+        <button id="stop" type="button" class="ghost compact" hidden>停止扫描</button>
+      </div>
       <div class="toolbar">
         <div id="totals">尚未扫描</div>
         <div class="filters" id="filters">

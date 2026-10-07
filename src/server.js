@@ -85,8 +85,19 @@ function settle(job, status, extra = {}) {
   emit(job, event, extra.summary || { error: job.error, groups: job.groups.length });
 }
 
+function runningJob() {
+  return [...jobs.values()].find((job) => job.status === "running") || null;
+}
+
+function cancelJob(job) {
+  if (!job || job.status !== "running") return false;
+  Atomics.store(job.flag, 0, 1);
+  setTimeout(() => job.worker?.terminate(), 1500);
+  return true;
+}
+
 function startJob(body) {
-  const running = [...jobs.values()].some((job) => job.status === "running");
+  const running = Boolean(runningJob());
   if (running) {
     const error = new Error("已有扫描在进行，请先停止或等待结束");
     error.status = 409;
@@ -268,6 +279,23 @@ async function handle(req, res) {
       return;
     }
 
+    if (req.method === "GET" && url.pathname === "/api/scan/active") {
+      const job = runningJob();
+      sendJson(res, 200, job ? { jobId: job.id, status: job.status, progress: job.progress } : { jobId: null });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/scan/cancel") {
+      const job = runningJob();
+      if (!job) {
+        sendJson(res, 200, { ok: true, stopped: false });
+        return;
+      }
+      cancelJob(job);
+      sendJson(res, 200, { ok: true, stopped: true, jobId: job.id });
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/scan") {
       const body = await readBody(req);
       const job = startJob(body);
@@ -311,8 +339,7 @@ async function handle(req, res) {
       }
       const action = jobPath[2] || "";
       if (req.method === "POST" && action === "cancel") {
-        Atomics.store(job.flag, 0, 1);
-        setTimeout(() => job.worker?.terminate(), 1500);
+        cancelJob(job);
         sendJson(res, 200, { ok: true });
         return;
       }

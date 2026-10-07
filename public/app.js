@@ -3,6 +3,7 @@ const STORE = "photo-dedupe-settings";
 const rootsEl = document.querySelector("#roots");
 const rootNote = document.querySelector("#root-note");
 const statusEl = document.querySelector("#status");
+const statusText = document.querySelector("#status-text");
 const totalsEl = document.querySelector("#totals");
 const resultsEl = document.querySelector("#results");
 const modal = document.querySelector("#modal");
@@ -55,7 +56,7 @@ function formatCapture(ms, subsecKnown) {
 }
 
 function setStatus(text, warn) {
-  statusEl.textContent = text;
+  statusText.textContent = text;
   statusEl.classList.toggle("warn", Boolean(warn));
 }
 
@@ -179,7 +180,7 @@ function setBusy(running) {
   document.querySelector("#scan").disabled = running;
   document.querySelector("#pick-multi").disabled = running;
   document.querySelector("#pick-one").disabled = running;
-  document.querySelector("#stop").disabled = !running;
+  document.querySelector("#stop").hidden = !running;
   updateTotals();
 }
 
@@ -465,7 +466,27 @@ async function scan() {
     listen(data.jobId);
   } catch (error) {
     setBusy(false);
+    if (String(error.message).includes("已有扫描")) {
+      document.querySelector("#stop").hidden = false;
+      setStatus("已有扫描在进行。点右边「停止扫描」可以结束它。", true);
+      attachActiveScan();
+      return;
+    }
     setStatus(error.message, true);
+  }
+}
+
+async function attachActiveScan() {
+  if (state.running && state.jobId) return;
+  try {
+    const data = await fetch("/api/scan/active").then((response) => response.json());
+    if (!data.jobId) return;
+    state.jobId = data.jobId;
+    setBusy(true);
+    setStatus("扫描仍在进行。点右边「停止扫描」可以结束它。");
+    listen(data.jobId);
+  } catch {
+    // 服务还没准备好时，页面仍可手动开始扫描。
   }
 }
 
@@ -553,7 +574,9 @@ document.querySelector("#toggle-open").addEventListener("click", () => {
 });
 document.querySelector("#scan").addEventListener("click", scan);
 document.querySelector("#stop").addEventListener("click", () => {
-  if (state.jobId) postJson(`/api/jobs/${state.jobId}/cancel`).catch((error) => setStatus(error.message, true));
+  setStatus("正在停止…");
+  const url = state.jobId ? `/api/jobs/${state.jobId}/cancel` : "/api/scan/cancel";
+  postJson(url).catch((error) => setStatus(error.message, true));
 });
 document.querySelector("#export").addEventListener("click", () => {
   if (state.jobId) window.location.href = `/api/jobs/${state.jobId}/report.csv`;
@@ -610,3 +633,4 @@ if (saved.sidecars != null) document.querySelector("#sidecars").checked = saved.
 renderRoots();
 renderAll();
 setStatus("添加目录后开始扫描。带「副本」或「(1)」的文件名会和原文件名认成同一张。");
+attachActiveScan();
