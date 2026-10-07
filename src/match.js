@@ -1,6 +1,6 @@
 import path from "node:path";
 import { familyOf } from "./extensions.js";
-import { exactKey, normalizeKey } from "./filename.js";
+import { exactKey, isCopyName, normalizeKey } from "./filename.js";
 
 export function nameKey(filename, mode) {
   if (mode === "exact") return exactKey(filename);
@@ -78,6 +78,49 @@ export function keepRank(file) {
   const stem = path.parse(file.name).name.toLocaleLowerCase("en-US");
   const originalName = stem === normalizeKey(file.name) ? 1 : 0;
   return [originalName, -file.path.length, -file.mtimeMs];
+}
+
+function appearedAt(file) {
+  const birth = Number(file.birthtimeMs);
+  if (Number.isFinite(birth) && birth > 0) return birth;
+  const modified = Number(file.mtimeMs);
+  return Number.isFinite(modified) ? modified : 0;
+}
+
+/** 标出这组里更像拍摄原件的一份，以及后来复制出来的文件。 */
+export function markOrigins(files) {
+  if (!files.length) return files;
+  const ranked = [...files].sort((a, b) => {
+    const nameDelta = (isCopyName(a.name) ? 1 : 0) - (isCopyName(b.name) ? 1 : 0);
+    if (nameDelta) return nameDelta;
+    const timeDelta = appearedAt(a) - appearedAt(b);
+    if (timeDelta) return timeDelta;
+    const pathDelta = String(a.path).length - String(b.path).length;
+    if (pathDelta) return pathDelta;
+    return String(a.path).localeCompare(String(b.path), "en");
+  });
+  const original = ranked[0];
+  const originalTime = appearedAt(original);
+  for (const file of files) {
+    if (file === original) {
+      file.origin = "original";
+      file.originReason = isCopyName(file.name) ? "这组里最早出现的文件" : "文件名没有副本标记，也是更早的一份";
+      continue;
+    }
+    if (isCopyName(file.name)) {
+      file.origin = "copy";
+      file.originReason = "文件名带有副本、(1) 或 copy";
+      continue;
+    }
+    if (appearedAt(file) >= originalTime + 2000) {
+      file.origin = "copy";
+      file.originReason = "文件创建时间更晚，是后来复制的";
+      continue;
+    }
+    file.origin = "same";
+    file.originReason = "文件名和创建时间都接近，看不出先后";
+  }
+  return files;
 }
 
 export function orderForKeep(files) {

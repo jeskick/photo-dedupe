@@ -195,13 +195,20 @@ function renderGroup(group) {
   openButton.dataset.action = "toggle";
   const previewButton = h("button", { type: "button", class: "ghost compact", text: group.showPreview ? "关预览" : "预览", title: "对比预览" });
   previewButton.dataset.action = "preview-group";
+  const original = group.files.find((file) => file.origin === "original");
+  const leave = !keeper
+    ? "还没有留下的文件"
+    : original && keeper.path === original.path
+      ? `留下原始 ${keeper.name}`
+      : `留下 ${keeper.name}`;
   const summary = [
-    keeper ? `留下 ${keeper.name}` : "还没有留下的文件",
+    leave,
+    original && keeper && original.path !== keeper.path ? `原始 ${original.name}` : "",
     `删除 ${dropCount} 个`,
     formatCapture(group.captureMs, group.subsecKnown),
     group.kind === "similar" ? `画面差异 ${group.distance ?? 0}` : "内容一致",
     `可释放 ${formatBytes(waste)}`,
-  ].join(" · ");
+  ].filter(Boolean).join(" · ");
   const header = h("header", {}, [
     h("label", { class: "check slim" }, [enable, document.createTextNode("清理")]),
     h("div", { class: "head-text" }, [
@@ -251,12 +258,19 @@ function revealButton(file) {
   return reveal;
 }
 
+function originTag(file) {
+  if (file.origin !== "original" && file.origin !== "copy") return null;
+  const text = file.origin === "original" ? "原始" : "复制";
+  return h("span", { class: `tag ${file.origin}`, text, title: file.originReason || text });
+}
+
 function renderFileRow(group, file) {
   const distance = file.role !== "keep" && file.distance != null ? `差异 ${file.distance}` : "";
   const folder = h("span", { class: "folder", text: folderOf(file.path), title: file.path });
   const name = h("span", { class: "name", text: file.name, title: file.path });
   return h("div", { class: `file ${file.role}`, title: file.path }, [
     choiceControls(group, file),
+    originTag(file),
     folder,
     name,
     h("span", { class: "size", text: formatBytes(file.size) }),
@@ -287,6 +301,7 @@ function renderCards(group) {
       media,
       h("div", { class: "folder", text: folderOf(file.path) }),
       h("div", { class: "name-line" }, [
+        originTag(file),
         h("span", { class: `tag ${mark.className}`, text: mark.text }),
         h("span", { class: "name", text: `${file.name} · ${formatBytes(file.size)}` }),
       ]),

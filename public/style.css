@@ -256,6 +256,9 @@ button.compact { padding: 0.08rem 0.45rem; font-size: 0.78rem; }
 .tag.keep { background: #cfe8d8; color: #145235; }
 .tag.drop { background: #f3ddc4; color: #8a4b12; }
 .tag.spare { background: #efeae2; color: #6f6458; }
+.tag.original { background: #d7efe3; color: #145235; }
+.tag.copy { background: #f6e3c4; color: #8a4b12; }
+.file .tag { flex: none; }
 .preview {
   margin: 0;
   max-height: 360px;

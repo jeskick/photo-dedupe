@@ -9,6 +9,10 @@ export function exactKey(filename) {
   return stemOf(filename).toLocaleLowerCase("en-US");
 }
 
+export function isCopyName(filename) {
+  return exactKey(filename) !== normalizeKey(filename);
+}
+
 /** 去掉 Windows / 资源管理器产生的“副本”“(1)”“copy”后缀，便于认出同一次拍摄的复制件。 */
 export function normalizeKey(filename) {
   let stem = stemOf(filename);

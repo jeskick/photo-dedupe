@@ -202,13 +202,15 @@ function csvCell(value) {
 }
 
 function reportCsv(job) {
-  const lines = [["组", "处理", "操作", "文件名", "拍摄时间", "大小", "路径", "内容哈希"].map(csvCell).join(",")];
+  const lines = [["组", "处理", "来源", "操作", "文件名", "拍摄时间", "大小", "路径", "内容哈希"].map(csvCell).join(",")];
   for (const group of job.groups) {
     for (const file of group.files) {
       const action = file.role === "keep" ? "保留" : file.role === "spare" ? "跳过" : "移入回收站";
+      const origin = file.origin === "original" ? "原始" : file.origin === "copy" ? "复制" : "";
       lines.push([
         group.id,
         group.enabled ? "是" : "否",
+        origin,
         action,
         file.name,
         formatCapture(file.captureMs, file.subsecKnown),

@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { isVideoExt } from "./extensions.js";
 import { readCapture } from "./metadata.js";
-import { clusterByCapture, nameKey, orderForKeep, pregroupKey } from "./match.js";
+import { clusterByCapture, markOrigins, nameKey, orderForKeep, pregroupKey } from "./match.js";
 import { phashFiles } from "./phash.js";
 import { pruneRoots } from "./roots.js";
 import { captureBuckets, clusterPhash, hammingHex } from "./similar.js";
@@ -125,6 +125,7 @@ function walkMedia(roots, extensions, isCancelled, onFile, onProgress) {
         ext,
         size: Number(st.size),
         mtimeMs: Number(st.mtimeNs / 1_000_000n),
+        birthtimeMs: st.birthtimeNs > 0n ? Number(st.birthtimeNs / 1_000_000n) : Number(st.mtimeNs / 1_000_000n),
       });
       if (files % 250 === 0) onProgress({ dirs, files });
     }
@@ -145,22 +146,29 @@ function groupBy(items, keyFn) {
   return [...map.values()].filter((group) => group.length >= 2);
 }
 
-function makeGroup(files, seq, extra = {}) {
-  const ordered = orderForKeep(files).map((file, index) => ({
+function publishFile(file, role) {
+  return {
     path: file.path,
     pathKey: file.pathKey,
     name: file.name,
     ext: file.ext,
     size: file.size,
     mtimeMs: file.mtimeMs,
+    birthtimeMs: file.birthtimeMs ?? null,
     captureMs: file.captureMs ?? null,
     subsecKnown: Boolean(file.subsecKnown),
     source: file.source || null,
     hash: file.hash || null,
     phash: file.phash || null,
     distance: null,
-    role: index === 0 ? "keep" : "delete",
-  }));
+    origin: null,
+    originReason: "",
+    role,
+  };
+}
+
+function makeGroup(files, seq, extra = {}) {
+  const ordered = markOrigins(orderForKeep(files).map((file, index) => publishFile(file, index === 0 ? "keep" : "delete")));
   const keeper = ordered[0];
   if (keeper.phash) {
     for (const file of ordered) {
@@ -409,23 +417,12 @@ export async function runScan(options) {
           const keepMedia = mediaByKey.get(keep.pathKey);
           if (keepMedia?.phash) keep.phash = keepMedia.phash;
           for (const file of fresh) {
-            group.files.push({
-              path: file.path,
-              pathKey: file.pathKey,
-              name: file.name,
-              ext: file.ext,
-              size: file.size,
-              mtimeMs: file.mtimeMs,
-              captureMs: file.captureMs ?? null,
-              subsecKnown: Boolean(file.subsecKnown),
-              source: file.source || null,
-              hash: file.hash || null,
-              phash: file.phash,
-              distance: keep.phash ? hammingHex(keep.phash, file.phash) : null,
-              role: "delete",
-            });
+            const published = publishFile(file, "delete");
+            published.distance = keep.phash ? hammingHex(keep.phash, file.phash) : null;
+            group.files.push(published);
             claimed.set(file.pathKey, group);
           }
+          markOrigins(group.files);
           group.kind = "similar";
           group.maxDistance = maxDistance;
           group.distance = Math.max(0, ...group.files.map((file) => (Number.isFinite(file.distance) ? file.distance : 0)));
