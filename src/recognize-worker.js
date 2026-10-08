@@ -28,7 +28,11 @@ child.stdout.on("data", (chunk) => {
       try {
         const item = JSON.parse(line);
         const status = typeof item.status === "string" ? item.status.trim() : "";
-        if (status && status.length <= 40 && !/[|%]/.test(status)) post({ type: "status", message: status });
+        if (status && status.length <= 40 && !/[|%]/.test(status)) {
+          const note = { type: "status", message: status };
+          if (Number.isFinite(item.faceTotal)) note.faceTotal = item.faceTotal;
+          post(note);
+        }
         else if (!item.status) post({ type: "item", item });
       } catch {
         if (stderr.length < 2000) stderr += `${line.slice(0, 180)}\n`;

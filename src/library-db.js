@@ -327,7 +327,7 @@ export function saveRecognition(db, filePath, embeddings, labels, people = []) {
     return { values, personId: 0, name: "" };
   });
   if (faces.length && !cleanLabels.includes("person")) cleanLabels.push("person");
-  if ((cleanLabels.includes("person") || cleanLabels.includes("animal")) && cleanLabels.includes("landscape")) {
+  if (cleanLabels.includes("person") && cleanLabels.includes("landscape")) {
     cleanLabels.splice(cleanLabels.indexOf("landscape"), 1);
   }
   const added = [];

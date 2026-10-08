@@ -917,9 +917,14 @@ async function watchRecognize() {
     recognizeStop.hidden = !running;
     const note = document.querySelector("#recognize-status");
     if (running && data.recognize) {
+      const phase = String(data.recognize.phase || "");
       const done = Number(data.recognize.done) || 0;
       const total = Number(data.recognize.total) || 0;
-      const text = total ? `已识别 ${done} / ${total}` : "正在准备人物模型，第一次会下载";
+      const faceDone = Number(data.recognize.faceDone) || 0;
+      const faceTotal = Number(data.recognize.faceTotal) || 0;
+      let text = "正在准备分类";
+      if (phase.includes("人物")) text = faceTotal ? `正在识别人物 ${faceDone} / ${faceTotal}` : "正在准备人物模型";
+      else if (total && !phase.includes("准备")) text = `正在区分风景 ${done} / ${total}`;
       statusEl.textContent = text;
       if (note) note.textContent = text;
       return;
@@ -948,7 +953,7 @@ async function startRecognizeRequest(filePath) {
   }
   document.querySelector("#recognize").hidden = true;
   document.querySelector("#recognize-stop").hidden = false;
-  const text = `开始识别全部 ${data.total} 张照片。第一次会先下载模型。`;
+  const text = `先把 ${data.total} 张分成风景和人物，再只认有人的照片。`;
   statusEl.textContent = text;
   const note = document.querySelector("#recognize-status");
   if (note) note.textContent = text;

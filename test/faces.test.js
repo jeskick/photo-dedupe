@@ -79,6 +79,11 @@ test("标记名字后能按人和场景筛选，删照片会清掉标记", () =>
   upsertPhotos(db, [third], 1);
   saveRecognition(db, third.path, [[0.97, 0.04, 0]], [], loadPeople(db));
   assert.equal(photoFaces(db, third.path)[0].name, "小明");
+  const scenery = { ...photo, path: path.join(dir, "d.jpg"), name: "d.jpg" };
+  upsertPhotos(db, [scenery], 1);
+  saveRecognition(db, scenery.path, [], ["animal", "landscape"], []);
+  assert.equal(queryPhotos(db, { label: "landscape" }).length, 1);
+  assert.equal(queryPhotos(db, { label: "animal" }).length, 2);
   purgeScan(db, 9);
   assert.equal(libraryMarks(db).people.length, 0);
   assert.equal(queryPhotos(db, { label: "person" }).length, 0);

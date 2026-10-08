@@ -162,7 +162,7 @@ function startRecognize(onlyPath) {
     error.status = 400;
     throw error;
   }
-  const reset = prepareRecognition(photosDb());
+  prepareRecognition(photosDb());
   const sab = new SharedArrayBuffer(4);
   const people = loadPeople(photosDb());
   recognizeNote = "";
@@ -170,7 +170,7 @@ function startRecognize(onlyPath) {
     flag: new Int32Array(sab),
     worker: null,
     people,
-    progress: { phase: reset ? "已换用更准的人脸模型，正在准备" : "正在准备人物模型", done: 0, total: paths.length },
+    progress: { phase: "正在准备分类", done: 0, total: paths.length, faceDone: 0, faceTotal: 0 },
   };
   const worker = new Worker(new URL("./recognize-worker.js", import.meta.url), {
     workerData: { paths, sab },
@@ -179,7 +179,9 @@ function startRecognize(onlyPath) {
   worker.on("message", (message) => {
     if (!recognizeJob || recognizeJob.worker !== worker) return;
     if (message.type === "status") {
-      recognizeJob.progress = { ...recognizeJob.progress, phase: message.message };
+      const progress = { ...recognizeJob.progress, phase: message.message };
+      if (Number.isFinite(message.faceTotal)) progress.faceTotal = message.faceTotal;
+      recognizeJob.progress = progress;
       return;
     }
     if (message.type === "item") {
@@ -187,12 +189,20 @@ function startRecognize(onlyPath) {
       if (item.path && !item.error) {
         saveRecognition(photosDb(), item.path, item.faces || [], item.labels || [], recognizeJob.people);
       }
-      recognizeJob.progress = {
-        ...recognizeJob.progress,
-        phase: "正在识别全部照片",
-        done: recognizeJob.progress.done + 1,
-        total: recognizeJob.progress.total,
-      };
+      if (item.pass === "face") {
+        recognizeJob.progress = {
+          ...recognizeJob.progress,
+          phase: "正在识别人物",
+          faceDone: (recognizeJob.progress.faceDone || 0) + 1,
+        };
+      } else {
+        recognizeJob.progress = {
+          ...recognizeJob.progress,
+          phase: "正在区分风景",
+          done: recognizeJob.progress.done + 1,
+          total: recognizeJob.progress.total,
+        };
+      }
       return;
     }
     if (message.type === "done" || message.type === "cancelled") {
