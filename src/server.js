@@ -64,7 +64,7 @@ function finishLibrary(status, summary) {
   if (status === "done") {
     const kind = job.kind === "video" ? "video" : "photo";
     const seen = libraryCount(photosDb(), kind);
-    const removed = purgeScan(photosDb(), job.scanId, kind);
+    const removed = purgeScan(photosDb(), job.scanId, kind, job.roots);
     const total = libraryCount(photosDb(), kind);
     const added = Math.max(0, seen - (job.beforeCount || 0));
     const saved = {

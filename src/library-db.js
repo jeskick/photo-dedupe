@@ -139,11 +139,35 @@ function dropOrphanMarks(db) {
   db.exec("DELETE FROM people WHERE name = '' AND id NOT IN (SELECT person_id FROM faces) AND id NOT IN (SELECT person_id FROM appearances)");
 }
 
-export function purgeScan(db, scanId, kind = "photo") {
+function scannedRoots(roots) {
+  return (roots || []).map((root) => path.resolve(String(root || "")).replace(/[\\/]+$/, "").toLowerCase()).filter(Boolean);
+}
+
+function underScannedRoot(filePath, roots) {
+  const full = path.resolve(String(filePath || "")).toLowerCase();
+  return roots.some((root) => full === root || full.startsWith(`${root}\\`) || full.startsWith(`${root}/`));
+}
+
+export function purgeScan(db, scanId, kind = "photo", roots) {
   const media = kind === "video" ? "video" : "photo";
-  const changes = db.prepare("DELETE FROM photos WHERE kind = ? AND scan_id != ?").run(media, scanId).changes || 0;
-  if (changes) dropOrphanMarks(db);
-  return changes;
+  const limit = scannedRoots(roots);
+  db.exec("BEGIN");
+  try {
+    const stale = db.prepare("SELECT path FROM photos WHERE kind = ? AND scan_id != ?").all(media, scanId);
+    const remove = db.prepare("DELETE FROM photos WHERE path = ?");
+    let changes = 0;
+    for (const row of stale) {
+      if (limit.length && !underScannedRoot(row.path, limit)) continue;
+      remove.run(row.path);
+      changes += 1;
+    }
+    if (changes) dropOrphanMarks(db);
+    db.exec("COMMIT");
+    return changes;
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
 }
 
 export function setLibraryMeta(db, key, value) {
@@ -217,8 +241,8 @@ export function removePhotos(db, paths) {
   db.exec("BEGIN");
   try {
     for (const filePath of paths) stmt.run(filePath);
-    db.exec("COMMIT");
     dropOrphanMarks(db);
+    db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
     throw error;
@@ -351,7 +375,7 @@ export function saveRecognition(db, filePath, embeddings, labels, people = []) {
     }
     const insertLabel = db.prepare("INSERT OR IGNORE INTO labels (path, label) VALUES (?, ?)");
     for (const label of cleanLabels) insertLabel.run(filePath, label);
-    db.exec("DELETE FROM people WHERE name = '' AND id NOT IN (SELECT person_id FROM faces)");
+    db.exec("DELETE FROM people WHERE name = '' AND id NOT IN (SELECT person_id FROM faces) AND id NOT IN (SELECT person_id FROM appearances)");
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");

@@ -351,6 +351,7 @@ async function deletePhoto(photo) {
   renderMosaic(true);
   statusEl.textContent = names.length > 1 ? "这两张已移入回收站。" : "已移入回收站。";
   await loadTree();
+  await loadMarks();
   await refreshQuiet();
   if (!state.done && state.photos.length < 40) loadPhotos(false);
 }

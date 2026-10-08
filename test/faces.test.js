@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { bestName, bestPerson, clusterPeople, facesToRename, linkBackViews } from "../src/faces.js";
-import { libraryMarks, loadPeople, openLibrary, photoFaces, purgeScan, queryPhotos, renameFace, saveRecognition, upsertPhotos } from "../src/library-db.js";
+import { libraryMarks, libraryPhoto, loadPeople, openLibrary, photoFaces, purgeScan, queryPhotos, removePhotos, renameFace, saveRecognition, setRating, upsertPhotos } from "../src/library-db.js";
 
 test("相似的脸用同一个名字，差得远的不会带上", () => {
   const named = [{ name: "小明", embedding: [1, 0, 0] }];
@@ -89,5 +89,47 @@ test("标记名字后能按人和场景筛选，删照片会清掉标记", () =>
   purgeScan(db, 9);
   assert.equal(libraryMarks(db).people.length, 0);
   assert.equal(queryPhotos(db, { label: "person" }).length, 0);
+  db.close();
+});
+
+test("再次扫描保留星级和人物标记，没扫到的盘不动，扫过的盘里不见的照片会连标记一起去掉", () => {
+  const seen = fs.mkdtempSync(path.join(os.tmpdir(), "photo-seen-"));
+  const other = fs.mkdtempSync(path.join(os.tmpdir(), "photo-other-"));
+  const db = openLibrary(path.join(seen, "library.sqlite"));
+  const base = {
+    ext: ".jpg",
+    size: 1,
+    mtimeMs: 1,
+    captureMs: 1,
+    year: 2020,
+    month: 1,
+    day: 2,
+    kind: "photo",
+    width: 800,
+    height: 600,
+  };
+  const kept = { ...base, path: path.join(seen, "a.jpg"), name: "a.jpg", dir: seen };
+  const gone = { ...base, path: path.join(seen, "b.jpg"), name: "b.jpg", dir: seen };
+  const elsewhere = { ...base, path: path.join(other, "c.jpg"), name: "c.jpg", dir: other };
+  upsertPhotos(db, [kept, gone, elsewhere], 1);
+  setRating(db, kept.path, 4);
+  setRating(db, elsewhere.path, 2);
+  const people = [];
+  saveRecognition(db, kept.path, [[1, 0, 0]], ["landscape"], people);
+  saveRecognition(db, gone.path, [[0, 1, 0]], ["animal"], people);
+  renameFace(db, photoFaces(db, kept.path)[0].id, "小明");
+  upsertPhotos(db, [kept], 2);
+  const removed = purgeScan(db, 2, "photo", [seen]);
+  assert.equal(removed, 1);
+  assert.equal(libraryPhoto(db, kept.path).rating, 4);
+  assert.equal(queryPhotos(db, { person: "小明" }).length, 1);
+  assert.equal(queryPhotos(db, { label: "animal" }).length, 0);
+  assert.equal(libraryPhoto(db, gone.path), null);
+  assert.equal(libraryPhoto(db, elsewhere.path).rating, 2);
+  assert.equal(libraryMarks(db).people.some((item) => item.name === "小明"), true);
+  removePhotos(db, [kept.path]);
+  assert.equal(libraryPhoto(db, kept.path), null);
+  assert.equal(queryPhotos(db, { person: "小明" }).length, 0);
+  assert.equal(photoFaces(db, kept.path).length, 0);
   db.close();
 });
