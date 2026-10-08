@@ -9,7 +9,7 @@ import { applyDeletions } from "./delete.js";
 import { pickFolders, recyclePaths, revealPath } from "./picker.js";
 import { renderPreviewJpeg } from "./preview.js";
 import { listDrives, pairedCameraPaths } from "./library-scan.js";
-import { ensurePeopleClusters, libraryCount, libraryMarks, libraryMeta, libraryPhoto, libraryPhotoPaths, librarySettings, libraryTree, loadPeople, openLibrary, photoFaces, purgeScan, queryPhotos, removePhotos, renameFace, renamePerson, saveLibrarySettings, saveRecognition, setLibraryMeta, setRating, upsertPhotos } from "./library-db.js";
+import { ensurePeopleClusters, libraryCount, libraryMarks, libraryMeta, libraryPhoto, libraryPhotoPaths, librarySettings, libraryTree, loadPeople, openLibrary, photoFaces, prepareRecognition, purgeScan, queryPhotos, removePhotos, renameFace, renamePerson, saveLibrarySettings, saveRecognition, setLibraryMeta, setRating, upsertPhotos } from "./library-db.js";
 import { describePhoto, readPhotoFacts } from "./photo-info.js";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, "..", "public");
@@ -162,6 +162,7 @@ function startRecognize(onlyPath) {
     error.status = 400;
     throw error;
   }
+  const reset = prepareRecognition(photosDb());
   const sab = new SharedArrayBuffer(4);
   const people = loadPeople(photosDb());
   recognizeNote = "";
@@ -169,7 +170,7 @@ function startRecognize(onlyPath) {
     flag: new Int32Array(sab),
     worker: null,
     people,
-    progress: { phase: "正在准备人物模型", done: 0, total: paths.length },
+    progress: { phase: reset ? "已换用更准的人脸模型，正在准备" : "正在准备人物模型", done: 0, total: paths.length },
   };
   const worker = new Worker(new URL("./recognize-worker.js", import.meta.url), {
     workerData: { paths, sab },

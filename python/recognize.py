@@ -83,8 +83,8 @@ def main():
     except Exception as error:
         sys.stderr.write(f"人物识别组件还没装好：{error}\n")
         sys.exit(1)
-    faces_app = FaceAnalysis(name="buffalo_s", root=str(MODEL_DIR / "insightface"), providers=["CPUExecutionProvider"])
-    faces_app.prepare(ctx_id=-1, det_size=(640, 640))
+    faces_app = FaceAnalysis(name="buffalo_l", root=str(MODEL_DIR / "insightface"), providers=["CPUExecutionProvider"])
+    faces_app.prepare(ctx_id=-1, det_thresh=0.35, det_size=(640, 640))
     emit({"status": "正在准备风景和动物模型"})
     session = None
     if ensure_yolo():

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { bestName, bestPerson, clusterPeople, facesToRename } from "../src/faces.js";
+import { bestName, bestPerson, clusterPeople, facesToRename, linkBackViews } from "../src/faces.js";
 import { libraryMarks, loadPeople, openLibrary, photoFaces, purgeScan, queryPhotos, renameFace, saveRecognition, upsertPhotos } from "../src/library-db.js";
 
 test("相似的脸用同一个名字，差得远的不会带上", () => {
@@ -27,6 +27,20 @@ test("零碎的脸并进最近的人，两个主要的人不会并成一个", ()
   const joined = groups.find((group) => group.members.some((face) => face.id === 20));
   assert.equal(joined.members.some((face) => face.id === 1), true);
   assert.equal(joined.members.some((face) => face.id === 9), false);
+});
+
+test("同一段时间里的背影会跟着唯一的人，两个人都在时不乱标", () => {
+  const shots = [
+    { path: "a", captureMs: 0, personIds: [1], body: true },
+    { path: "back", captureMs: 60 * 1000, personIds: [], body: true },
+    { path: "later", captureMs: 10 * 60 * 60 * 1000, personIds: [], body: true },
+    { path: "mix", captureMs: 20 * 60 * 60 * 1000, personIds: [], body: true },
+    { path: "b", captureMs: 20 * 60 * 60 * 1000 + 1000, personIds: [2], body: true },
+    { path: "a2", captureMs: 20 * 60 * 60 * 1000 + 2000, personIds: [1], body: true },
+  ];
+  const linked = linkBackViews(shots);
+  assert.deepEqual(linked.map((item) => item.path), ["back"]);
+  assert.equal(linked[0].personId, 1);
 });
 
 test("标记名字后能按人和场景筛选，删照片会清掉标记", () => {

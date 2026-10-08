@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { bestPerson, bufferFromEmbedding, clusterPeople, embeddingFromBuffer } from "./faces.js";
+import { bestPerson, bufferFromEmbedding, clusterPeople, embeddingFromBuffer, FACE_MODEL, linkBackViews } from "./faces.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS photos (
@@ -63,6 +63,11 @@ export function openLibrary(dbPath) {
       id INTEGER PRIMARY KEY,
       name TEXT NOT NULL DEFAULT '',
       exemplar BLOB
+    );
+    CREATE TABLE IF NOT EXISTS appearances (
+      path TEXT NOT NULL,
+      person_id INTEGER NOT NULL,
+      PRIMARY KEY (path, person_id)
     );
     CREATE TABLE IF NOT EXISTS labels (
       path TEXT NOT NULL,
@@ -130,7 +135,8 @@ export function upsertPhotos(db, photos, scanId) {
 function dropOrphanMarks(db) {
   db.exec("DELETE FROM faces WHERE path NOT IN (SELECT path FROM photos)");
   db.exec("DELETE FROM labels WHERE path NOT IN (SELECT path FROM photos)");
-  db.exec("DELETE FROM people WHERE name = '' AND id NOT IN (SELECT person_id FROM faces)");
+  db.exec("DELETE FROM appearances WHERE path NOT IN (SELECT path FROM photos)");
+  db.exec("DELETE FROM people WHERE name = '' AND id NOT IN (SELECT person_id FROM faces) AND id NOT IN (SELECT person_id FROM appearances)");
 }
 
 export function purgeScan(db, scanId, kind = "photo") {
@@ -239,13 +245,21 @@ function ratingClause(filter, where, params) {
   }
   const person = String(filter.person || "").trim();
   if (person) {
-    where.push("path IN (SELECT path FROM faces WHERE name = ?)");
-    params.push(person);
+    where.push(`path IN (
+      SELECT path FROM faces WHERE name = ?
+      UNION
+      SELECT appearances.path FROM appearances JOIN people ON people.id = appearances.person_id WHERE people.name = ?
+    )`);
+    params.push(person, person);
   }
   const personId = Number(filter.personId);
   if (personId > 0) {
-    where.push("path IN (SELECT path FROM faces WHERE person_id = ?)");
-    params.push(personId);
+    where.push(`path IN (
+      SELECT path FROM faces WHERE person_id = ?
+      UNION
+      SELECT path FROM appearances WHERE person_id = ?
+    )`);
+    params.push(personId, personId);
   }
 }
 
@@ -323,6 +337,8 @@ export function saveRecognition(db, filePath, embeddings, labels, people = []) {
     db.prepare("DELETE FROM labels WHERE path = ?").run(filePath);
     const insertPerson = db.prepare("INSERT INTO people (name, exemplar) VALUES ('', ?)");
     const insertFace = db.prepare("INSERT INTO faces (path, embedding, name, person_id) VALUES (?, ?, ?, ?)");
+    const insertAppearance = db.prepare("INSERT OR IGNORE INTO appearances (path, person_id) VALUES (?, ?)");
+    db.prepare("DELETE FROM appearances WHERE path = ?").run(filePath);
     for (const face of faces) {
       if (!face.personId) {
         face.personId = Number(insertPerson.run(bufferFromEmbedding(face.values)).lastInsertRowid);
@@ -331,6 +347,7 @@ export function saveRecognition(db, filePath, embeddings, labels, people = []) {
         added.push(created);
       }
       insertFace.run(filePath, bufferFromEmbedding(face.values), face.name, face.personId);
+      insertAppearance.run(filePath, face.personId);
     }
     const insertLabel = db.prepare("INSERT OR IGNORE INTO labels (path, label) VALUES (?, ?)");
     for (const label of cleanLabels) insertLabel.run(filePath, label);
@@ -382,11 +399,49 @@ export function attachLooseFaces(db) {
   return loose.length;
 }
 
-const PEOPLE_CLUSTER = "3";
+const PEOPLE_CLUSTER = "4";
+
+export function prepareRecognition(db) {
+  if (libraryMeta(db).faceModel === FACE_MODEL) return false;
+  db.exec("DELETE FROM faces");
+  db.exec("DELETE FROM people");
+  db.exec("DELETE FROM labels");
+  db.exec("DELETE FROM appearances");
+  setLibraryMeta(db, "faceModel", FACE_MODEL);
+  setLibraryMeta(db, "peopleCluster", "");
+  return true;
+}
+
+function applyBackViews(db) {
+  const rows = db.prepare(`
+    SELECT photos.path AS path, photos.capture_ms AS captureMs, faces.person_id AS personId,
+      CASE WHEN labels.path IS NULL THEN 0 ELSE 1 END AS body
+    FROM photos
+    LEFT JOIN faces ON faces.path = photos.path
+    LEFT JOIN labels ON labels.path = photos.path AND labels.label = 'person'
+    WHERE photos.kind = 'photo'
+  `).all();
+  const shots = new Map();
+  for (const row of rows) {
+    const shot = shots.get(row.path) || { path: row.path, captureMs: row.captureMs, personIds: [], body: false };
+    if (row.personId) shot.personIds.push(row.personId);
+    if (row.body) shot.body = true;
+    shots.set(row.path, shot);
+  }
+  const linked = linkBackViews([...shots.values()]);
+  const insert = db.prepare("INSERT OR IGNORE INTO appearances (path, person_id) VALUES (?, ?)");
+  const label = db.prepare("INSERT OR IGNORE INTO labels (path, label) VALUES (?, 'person')");
+  for (const item of linked) {
+    insert.run(item.path, item.personId);
+    label.run(item.path);
+  }
+  return linked.length;
+}
 
 export function rebuildPeople(db) {
-  const faces = db.prepare("SELECT id, name, embedding FROM faces").all().map((row) => ({
+  const faces = db.prepare("SELECT id, path, name, embedding FROM faces").all().map((row) => ({
     id: row.id,
+    path: row.path,
     name: row.name || "",
     embedding: embeddingFromBuffer(row.embedding),
   }));
@@ -394,8 +449,10 @@ export function rebuildPeople(db) {
   db.exec("BEGIN");
   try {
     db.exec("DELETE FROM people");
+    db.exec("DELETE FROM appearances");
     const insert = db.prepare("INSERT INTO people (name, exemplar) VALUES (?, ?)");
     const update = db.prepare("UPDATE faces SET person_id = ?, name = ? WHERE id = ?");
+    const appear = db.prepare("INSERT OR IGNORE INTO appearances (path, person_id) VALUES (?, ?)");
     for (const group of groups) {
       const counts = new Map();
       for (const face of group.members) {
@@ -410,8 +467,12 @@ export function rebuildPeople(db) {
         }
       }
       const personId = Number(insert.run(name, bufferFromEmbedding(group.center)).lastInsertRowid);
-      for (const face of group.members) update.run(personId, name, face.id);
+      for (const face of group.members) {
+        update.run(personId, name, face.id);
+        appear.run(face.path, personId);
+      }
     }
+    applyBackViews(db);
     setLibraryMeta(db, "peopleCluster", PEOPLE_CLUSTER);
     db.exec("COMMIT");
   } catch (error) {
@@ -437,8 +498,12 @@ export function libraryMarks(db) {
       landscape: counts.landscape || 0,
     },
     people: db.prepare(`
-      SELECT people.id AS id, people.name AS name, COUNT(DISTINCT faces.path) AS count
-      FROM people JOIN faces ON faces.person_id = people.id
+      SELECT people.id AS id, people.name AS name, COUNT(DISTINCT seen.path) AS count
+      FROM people JOIN (
+        SELECT person_id, path FROM faces
+        UNION
+        SELECT person_id, path FROM appearances
+      ) AS seen ON seen.person_id = people.id
       GROUP BY people.id
       ORDER BY count DESC, people.id
     `).all(),
