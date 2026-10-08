@@ -234,6 +234,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 }
 .scrub-label[hidden] { display: none; }
 .row { display: flex; width: 100%; min-width: 0; gap: 2px; margin-bottom: 2px; }
+.row.short { width: auto; max-width: 100%; }
 .tile {
   position: relative;
   flex: 1 1 0;

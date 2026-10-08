@@ -341,11 +341,38 @@ async function deletePhoto(photo) {
   if (!state.done && state.photos.length < 40) loadPhotos(false);
 }
 
-function makeTile(photo, index, wide) {
+function naturalWidth(photo) {
+  const height = rowHeight();
+  const w = Number(photo.width) || 0;
+  const h = Number(photo.height) || 0;
+  let ratio = 1.5;
+  if (w > 0 && h > 0) ratio = w / h;
+  ratio = Math.min(1.85, Math.max(0.72, ratio));
+  const limit = Math.max(160, (mosaicEl.clientWidth || 900) - 8);
+  return Math.min(limit, Math.round(height * ratio));
+}
+
+function finishRow(row) {
+  if (!row) return;
+  const stretch = row.children.length >= perRow();
+  row.classList.toggle("short", !stretch);
+  for (const tile of row.children) {
+    if (stretch) {
+      tile.style.flex = "1 1 0";
+      tile.style.width = "auto";
+      tile.style.maxWidth = "none";
+    } else {
+      tile.style.flex = "0 0 auto";
+      tile.style.width = `${tile.dataset.natural}px`;
+      tile.style.maxWidth = "none";
+    }
+  }
+}
+
+function makeTile(photo, index) {
   const tile = h("div", { class: "tile", title: photo.name });
-  tile.style.flex = wide ? "1 1 0" : "0 1 auto";
-  tile.style.width = wide ? "auto" : `${Math.round(rowHeight() * 1.45)}px`;
-  tile.style.maxWidth = wide ? "none" : "42%";
+  tile.dataset.natural = String(naturalWidth(photo));
+  tile.style.flex = "1 1 0";
   tile.style.setProperty("--row-h", `${rowHeight()}px`);
   let visual;
   const playable = state.kind === "video" && [".mp4", ".m4v", ".mov"].includes(String(photo.ext || "").toLowerCase());
@@ -434,16 +461,19 @@ function appendRange(start, end) {
       body = section.querySelector(".month-body");
     }
     let row = body.lastElementChild;
+    if (row && row.children.length >= size) row = null;
     while (index < end) {
       const photo = state.photos[index];
       if (photo.year !== first.year || photo.month !== first.month) break;
       if (!row || row.children.length >= size) {
+        if (row) finishRow(row);
         row = h("div", { class: "row" });
         body.append(row);
       }
-      row.append(makeTile(photo, index, true));
+      row.append(makeTile(photo, index));
       index += 1;
     }
+    if (row) finishRow(row);
   }
   mosaicEl.querySelector(".more")?.remove();
   mosaicEl.querySelector(".empty")?.remove();
