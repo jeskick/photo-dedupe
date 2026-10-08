@@ -303,7 +303,7 @@ function paintStars(stars, rating) {
   toggle.title = rating ? `已加 ${rating} 星` : "加星";
 }
 
-async function ratePhoto(photo, rating, stars) {
+async function ratePhoto(photo, rating) {
   const response = await fetch("/api/library/rating", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -315,7 +315,14 @@ async function ratePhoto(photo, rating, stars) {
     return;
   }
   photo.rating = data.rating;
-  paintStars(stars, photo.rating);
+  paintPhotoStars(photo);
+}
+
+function paintPhotoStars(photo) {
+  const rating = Number(photo.rating) || 0;
+  if (state.photos[state.open]?.path === photo.path) paintStars(viewerStars, rating);
+  const tileStars = mosaicEl.querySelector(`[data-path="${CSS.escape(photo.path)}"] .stars`);
+  if (tileStars) paintStars(tileStars, rating);
 }
 
 async function deletePhoto(photo) {
@@ -386,6 +393,7 @@ function finishRow(row) {
 
 function makeTile(photo, index) {
   const tile = h("div", { class: "tile", title: photo.name });
+  tile.dataset.path = photo.path;
   tile.dataset.natural = String(naturalWidth(photo));
   tile.style.flex = "1 1 0";
   tile.style.setProperty("--row-h", `${rowHeight()}px`);
@@ -420,7 +428,7 @@ function makeTile(photo, index) {
     star.addEventListener("click", (event) => {
       event.stopPropagation();
       const next = Number(photo.rating) === value ? 0 : value;
-      ratePhoto(photo, next, stars);
+      ratePhoto(photo, next);
     });
     stars.append(star);
   }
@@ -670,6 +678,7 @@ function openViewer(index) {
     viewerImg.alt = photo.name;
     viewerImg.src = `/api/library/view?path=${encodeURIComponent(photo.path)}`;
   }
+  paintPhotoStars(photo);
   showPhotoInfo(photo);
 }
 
@@ -825,8 +834,8 @@ function setKind(kind) {
     state.label = "";
     state.person = "";
     state.personId = "";
-    renderMarks();
   }
+  renderMarks();
   state.year = "";
   state.month = "";
   state.day = "";
@@ -840,6 +849,8 @@ function setKind(kind) {
 const SCENE_TEXT = { person: "人物", animal: "动物", landscape: "风景" };
 
 function renderMarks() {
+  const section = document.querySelector("[data-fold='marks']");
+  if (section) section.hidden = state.kind === "video";
   for (const button of document.querySelectorAll("#scenes button")) {
     const count = state.marks.labels?.[button.dataset.label] || 0;
     button.textContent = `${SCENE_TEXT[button.dataset.label]} ${count}`;
@@ -1142,7 +1153,20 @@ window.addEventListener("resize", () => {
   clearTimeout(window._layout);
   window._layout = setTimeout(() => renderMosaic(true), 150);
 });
+const viewerStars = document.querySelector("#viewer-stars");
 document.querySelector("#viewer-close").addEventListener("click", closeViewer);
+viewerStars.addEventListener("click", (event) => {
+  const star = event.target.closest(".star");
+  const photo = state.photos[state.open];
+  if (!star || !photo) return;
+  const value = Number(star.dataset.value);
+  const next = Number(photo.rating) === value ? 0 : value;
+  ratePhoto(photo, next);
+});
+document.querySelector("#viewer-delete").addEventListener("click", () => {
+  const photo = state.photos[state.open];
+  if (photo) deletePhoto(photo);
+});
 document.querySelector("#viewer-open").addEventListener("click", () => {
   const photo = state.photos[state.open];
   if (photo) reveal(photo.path);

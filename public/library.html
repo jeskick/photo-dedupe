@@ -109,7 +109,17 @@
     <div class="viewer-bar">
       <button id="viewer-close" class="quiet" type="button">关闭</button>
       <div id="viewer-caption"></div>
-      <button id="viewer-open" class="quiet" type="button">打开所在文件夹</button>
+      <div class="viewer-actions">
+        <div id="viewer-stars" class="stars viewer-stars" role="group" aria-label="星级">
+          <button class="tool star" type="button" data-value="1" title="1 星">★</button>
+          <button class="tool star" type="button" data-value="2" title="2 星">★</button>
+          <button class="tool star" type="button" data-value="3" title="3 星">★</button>
+          <button class="tool star" type="button" data-value="4" title="4 星">★</button>
+          <button class="tool star" type="button" data-value="5" title="5 星">★</button>
+        </div>
+        <button id="viewer-delete" class="quiet" type="button">移入回收站</button>
+        <button id="viewer-open" class="quiet" type="button">打开所在文件夹</button>
+      </div>
     </div>
     <div class="viewer-stage">
       <aside id="viewer-info" class="viewer-info" hidden></aside>
