@@ -908,7 +908,7 @@ document.querySelector("#scenes").addEventListener("click", (event) => {
 let recognizeTimer = 0;
 async function watchRecognize() {
   clearInterval(recognizeTimer);
-  recognizeTimer = setInterval(async () => {
+  const tick = async () => {
     const data = await refreshQuiet();
     const recognizeBtn = document.querySelector("#recognize");
     const recognizeStop = document.querySelector("#recognize-stop");
@@ -916,20 +916,23 @@ async function watchRecognize() {
     recognizeBtn.hidden = running;
     recognizeStop.hidden = !running;
     const note = document.querySelector("#recognize-status");
-    if (data.recognize) {
-      const text = `${data.recognize.phase} ${data.recognize.done || 0} / ${data.recognize.total || 0}`;
+    if (running && data.recognize) {
+      const done = Number(data.recognize.done) || 0;
+      const total = Number(data.recognize.total) || 0;
+      const text = total ? `已识别 ${done} / ${total}` : "正在准备人物模型，第一次会下载";
       statusEl.textContent = text;
       if (note) note.textContent = text;
+      return;
     }
-    if (!running) {
-      clearInterval(recognizeTimer);
-      const text = data.recognizeNote || "识别完成。左侧是同一人的分组和张数，点一组再起名。";
-      statusEl.textContent = text;
-      if (note) note.textContent = text;
-      await loadMarks();
-      if (state.personId || state.label || state.person) loadPhotos(true);
-    }
-  }, 1000);
+    clearInterval(recognizeTimer);
+    const text = data.recognizeNote || "识别完成。左侧是同一人的分组和张数，点一组再起名。";
+    statusEl.textContent = text;
+    if (note) note.textContent = text;
+    await loadMarks();
+    if (state.personId || state.label || state.person) loadPhotos(true);
+  };
+  recognizeTimer = setInterval(tick, 1000);
+  await tick();
 }
 
 async function startRecognizeRequest(filePath) {

@@ -6,7 +6,10 @@ import { pythonExecutable } from "./phash.js";
 const flag = new Int32Array(workerData.sab);
 const python = pythonExecutable();
 const script = fileURLToPath(new URL("../python/recognize.py", import.meta.url));
-const child = spawn(python, [script], { windowsHide: true });
+const child = spawn(python, [script], {
+  windowsHide: true,
+  env: { ...process.env, PYTHONUNBUFFERED: "1", TQDM_DISABLE: "1" },
+});
 let stdout = "";
 let stderr = "";
 let settled = false;
@@ -16,7 +19,7 @@ function post(message) {
 }
 
 child.stdout.on("data", (chunk) => {
-  stdout += chunk.toString("utf8");
+  stdout += chunk.toString("utf8").replace(/\r/g, "\n");
   let split = stdout.indexOf("\n");
   while (split >= 0) {
     const line = stdout.slice(0, split).trim();
@@ -24,17 +27,18 @@ child.stdout.on("data", (chunk) => {
     if (line) {
       try {
         const item = JSON.parse(line);
-        if (item.status) post({ type: "status", message: item.status });
-        else post({ type: "item", item });
+        const status = typeof item.status === "string" ? item.status.trim() : "";
+        if (status && status.length <= 40 && !/[|%]/.test(status)) post({ type: "status", message: status });
+        else if (!item.status) post({ type: "item", item });
       } catch {
-        stderr += line;
+        if (stderr.length < 2000) stderr += `${line.slice(0, 180)}\n`;
       }
     }
     split = stdout.indexOf("\n");
   }
 });
 child.stderr.on("data", (chunk) => {
-  stderr += chunk.toString("utf8");
+  if (stderr.length < 4000) stderr += chunk.toString("utf8").slice(0, 4000 - stderr.length);
 });
 child.on("error", () => {
   if (settled) return;
