@@ -13,6 +13,9 @@ const scrubEl = document.querySelector("#scrub");
 const scrubTrack = document.querySelector("#scrub-track");
 const scrubLabel = document.querySelector("#scrub-label");
 const infoEl = document.querySelector("#viewer-info");
+const viewerVideo = document.querySelector("#viewer-video");
+const minEdgeEl = document.querySelector("#min-edge");
+const excludeList = document.querySelector("#exclude-list");
 const FOLD_KEY = "photo-library-folds";
 let scrubTimer = 0;
 let scrollLock = 0;
@@ -32,6 +35,9 @@ const state = {
   day: "",
   q: "",
   rating: "",
+  kind: "photo",
+  origin: "",
+  settings: { excludeDirs: [], minEdgePhoto: 0, minEdgeVideo: 0 },
   loading: false,
   done: false,
   open: -1,
@@ -341,9 +347,21 @@ function makeTile(photo, index, wide) {
   tile.style.width = wide ? "auto" : `${Math.round(rowHeight() * 1.45)}px`;
   tile.style.maxWidth = wide ? "none" : "42%";
   tile.style.setProperty("--row-h", `${rowHeight()}px`);
-  const img = h("img", { alt: photo.name, loading: "lazy" });
-  img.src = `/api/library/thumb?path=${encodeURIComponent(photo.path)}`;
-  img.addEventListener("error", () => tile.classList.add("broken"));
+  let visual;
+  const playable = state.kind === "video" && [".mp4", ".m4v", ".mov"].includes(String(photo.ext || "").toLowerCase());
+  if (state.kind === "video" && !playable) {
+    visual = h("div", { class: "video-fallback", text: String(photo.ext || "视频").replace(/^\./, "").toUpperCase() });
+  } else if (playable) {
+    visual = document.createElement("video");
+    visual.muted = true;
+    visual.preload = "metadata";
+    visual.src = `/api/library/media?path=${encodeURIComponent(photo.path)}#t=0.2`;
+    visual.addEventListener("error", () => tile.classList.add("broken"));
+  } else {
+    visual = h("img", { alt: photo.name, loading: "lazy" });
+    visual.src = `/api/library/thumb?path=${encodeURIComponent(photo.path)}`;
+    visual.addEventListener("error", () => tile.classList.add("broken"));
+  }
   const tools = h("div", { class: "tile-tools" });
   const rate = h("div", { class: "rate" });
   const toggle = h("button", {
@@ -377,7 +395,7 @@ function makeTile(photo, index, wide) {
     event.preventDefault();
     event.stopPropagation();
   });
-  tile.append(img, tools);
+  tile.append(visual, tools);
   let timer = 0;
   tile.addEventListener("click", () => {
     clearTimeout(timer);
@@ -438,11 +456,14 @@ function renderMosaic(keepScroll) {
   mosaicEl.replaceChildren();
   if (!state.photos.length) {
     const empty = h("div", { class: "empty" });
+    const noun = state.kind === "video" ? "视频" : "照片";
     const emptyText = state.q
-      ? "没有符合搜索的照片。"
-      : state.rating
-        ? `还没有 ${state.rating} 星的照片。`
-        : "还没有照片。点左侧「扫描全部磁盘」，只会收录正常照片。";
+      ? `没有符合搜索的${noun}。`
+      : state.origin
+        ? `还没有${state.origin === "camera" ? "相机" : "手机"}拍摄的${noun}。`
+        : state.rating
+          ? `还没有 ${state.rating} 星的${noun}。`
+          : `还没有${noun}。点左侧「扫描全部磁盘」，只会收录正常${noun}。`;
     empty.append(h("div", { text: emptyText }));
     mosaicEl.append(empty);
     stageEl.scrollTop = 0;
@@ -468,6 +489,8 @@ async function loadPhotos(reset) {
   if (state.day) params.set("day", state.day);
   if (state.q) params.set("q", state.q);
   if (state.rating) params.set("rating", state.rating);
+  params.set("kind", state.kind);
+  if (state.origin) params.set("origin", state.origin);
   let response;
   try {
     response = await fetch(`/api/library/photos?${params}`);
@@ -489,11 +512,16 @@ async function loadPhotos(reset) {
   else appendRange(start, state.photos.length);
 }
 
+let treeGen = 0;
 async function loadTree() {
+  const gen = ++treeGen;
   const params = new URLSearchParams();
+  params.set("kind", state.kind);
   if (state.rating) params.set("rating", state.rating);
+  if (state.origin) params.set("origin", state.origin);
   const response = await fetch(`/api/library/tree?${params}`);
   const data = await response.json();
+  if (gen !== treeGen) return;
   state.days = data.days || [];
   renderTree();
 }
@@ -502,25 +530,27 @@ function selectTime(year, month, day) {
   state.year = year ? String(year) : "";
   state.month = month ? String(month) : "";
   state.day = day ? String(day) : "";
-  document.querySelector("#nav-all").classList.toggle("on", !state.year);
+  document.querySelector("#nav-all").classList.toggle("on", state.kind !== "video" && !state.year);
+  document.querySelector("#nav-video").classList.toggle("on", state.kind === "video" && !state.year);
   renderTree();
   loadPhotos(true);
   stageEl.scrollTop = 0;
 }
 
 function showCount(total) {
-  countEl.textContent = total ? `已收录 ${total} 张` : "还没有照片";
+  const noun = state.kind === "video" ? "个视频" : "张";
+  countEl.textContent = total ? `已收录 ${total} ${noun}` : (state.kind === "video" ? "还没有视频" : "还没有照片");
 }
 
 async function refreshQuiet() {
   const response = await fetch("/api/library/state");
   const data = await response.json();
-  showCount(data.total || 0);
+  showCount(state.kind === "video" ? data.videos : data.photos);
   state.scanning = Boolean(data.scanning);
   scanBtn.hidden = state.scanning;
   stopBtn.hidden = !state.scanning;
   if (data.scanning && data.progress) {
-    statusEl.textContent = `正在扫描，已看到 ${data.progress.dirs || 0} 个目录，收录 ${data.progress.files || 0} 张。`;
+    statusEl.textContent = `正在扫描，已看到 ${data.progress.dirs || 0} 个目录，收录 ${data.progress.files || 0} ${state.kind === "video" ? "个" : "张"}。`;
   }
   return data;
 }
@@ -540,14 +570,42 @@ async function showPhotoInfo(photo) {
   infoEl.replaceChildren(list);
 }
 
+let viewScale = 1;
+let viewX = 0;
+let viewY = 0;
+
+function applyZoom() {
+  viewerImg.style.transform = `translate(${viewX}px, ${viewY}px) scale(${viewScale})`;
+  viewerImg.classList.toggle("zoomed", viewScale > 1);
+}
+
+function resetZoom() {
+  viewScale = 1;
+  viewX = 0;
+  viewY = 0;
+  applyZoom();
+}
+
 function openViewer(index) {
   const photo = state.photos[index];
   if (!photo) return;
   state.open = index;
   viewer.hidden = false;
-  viewerImg.alt = photo.name;
-  viewerImg.src = `/api/library/view?path=${encodeURIComponent(photo.path)}`;
+  resetZoom();
   viewerCaption.textContent = `${dateText(photo)}  ${photo.name}`;
+  if (state.kind === "video") {
+    viewerImg.hidden = true;
+    viewerImg.removeAttribute("src");
+    viewerVideo.hidden = false;
+    viewerVideo.src = `/api/library/media?path=${encodeURIComponent(photo.path)}`;
+  } else {
+    viewerVideo.pause();
+    viewerVideo.hidden = true;
+    viewerVideo.removeAttribute("src");
+    viewerImg.hidden = false;
+    viewerImg.alt = photo.name;
+    viewerImg.src = `/api/library/view?path=${encodeURIComponent(photo.path)}`;
+  }
   showPhotoInfo(photo);
 }
 
@@ -555,6 +613,9 @@ function closeViewer() {
   infoGen += 1;
   viewer.hidden = true;
   viewerImg.removeAttribute("src");
+  viewerVideo.pause();
+  viewerVideo.removeAttribute("src");
+  resetZoom();
   infoEl.hidden = true;
   infoEl.replaceChildren();
   state.open = -1;
@@ -583,7 +644,7 @@ function watchScan() {
   const source = new EventSource("/api/library/events");
   source.addEventListener("progress", (event) => {
     const progress = JSON.parse(event.data);
-    statusEl.textContent = `正在扫描，已看到 ${progress.dirs || 0} 个目录，收录 ${progress.files || 0} 张。`;
+    statusEl.textContent = `正在扫描，已看到 ${progress.dirs || 0} 个目录，收录 ${progress.files || 0} ${state.kind === "video" ? "个" : "张"}。`;
   });
   const finish = async (text) => {
     source.close();
@@ -598,9 +659,10 @@ function watchScan() {
   };
   source.addEventListener("done", (event) => {
     const summary = JSON.parse(event.data);
-    const parts = [`扫描完成，收录 ${summary.total || summary.files || 0} 张。`];
-    if (summary.added) parts.push(`新加入 ${summary.added} 张。`);
-    if (summary.removed) parts.push(`已去掉 ${summary.removed} 张不存在的照片。`);
+    const unit = state.kind === "video" ? "个" : "张";
+    const parts = [`扫描完成，收录 ${summary.total || summary.files || 0} ${unit}。`];
+    if (summary.added) parts.push(`新加入 ${summary.added} ${unit}。`);
+    if (summary.removed) parts.push(`已去掉 ${summary.removed} ${unit}不存在的。`);
     finish(parts.join(""));
   });
   source.addEventListener("cancelled", () => finish("扫描已停止，已收录的照片仍会保留。"));
@@ -655,10 +717,123 @@ document.querySelector("#ratings").addEventListener("click", (event) => {
   loadPhotos(true);
   stageEl.scrollTop = 0;
 });
-document.querySelector("#nav-all").addEventListener("click", () => selectTime("", "", ""));
+function renderExcludes() {
+  excludeList.replaceChildren();
+  for (const dir of state.settings.excludeDirs || []) {
+    const item = h("li");
+    const label = h("span", { text: dir, title: dir });
+    const remove = h("button", { type: "button", text: "移除" });
+    remove.addEventListener("click", () => saveSettings({ excludeDirs: state.settings.excludeDirs.filter((entry) => entry !== dir) }));
+    item.append(label, remove);
+    excludeList.append(item);
+  }
+}
+
+function renderEdge() {
+  minEdgeEl.value = String(state.kind === "video" ? state.settings.minEdgeVideo : state.settings.minEdgePhoto);
+}
+
+async function saveSettings(patch) {
+  const response = await fetch("/api/library/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      excludeDirs: patch.excludeDirs || state.settings.excludeDirs,
+      minEdgePhoto: patch.minEdgePhoto ?? state.settings.minEdgePhoto,
+      minEdgeVideo: patch.minEdgeVideo ?? state.settings.minEdgeVideo,
+    }),
+  });
+  state.settings = await response.json();
+  renderExcludes();
+  renderEdge();
+}
+
+async function loadSettings() {
+  const response = await fetch("/api/library/settings");
+  state.settings = await response.json();
+  renderExcludes();
+  renderEdge();
+}
+
+function setKind(kind) {
+  state.kind = kind;
+  state.year = "";
+  state.month = "";
+  state.day = "";
+  closeViewer();
+  renderEdge();
+  selectTime("", "", "");
+  loadTree();
+  refreshQuiet();
+}
+
+document.querySelector("#nav-all").addEventListener("click", () => setKind("photo"));
+document.querySelector("#nav-video").addEventListener("click", () => setKind("video"));
+document.querySelector("#origins").addEventListener("click", (event) => {
+  const button = event.target.closest("button");
+  if (!button) return;
+  const origin = button.dataset.origin;
+  state.origin = state.origin === origin ? "" : origin;
+  for (const item of document.querySelectorAll("#origins button")) {
+    item.classList.toggle("on", item.dataset.origin === state.origin);
+  }
+  loadTree();
+  loadPhotos(true);
+  stageEl.scrollTop = 0;
+});
+minEdgeEl.addEventListener("change", () => {
+  const value = Number(minEdgeEl.value) || 0;
+  if (state.kind === "video") saveSettings({ minEdgeVideo: value });
+  else saveSettings({ minEdgePhoto: value });
+});
+document.querySelector("#exclude-add").addEventListener("click", async () => {
+  const response = await fetch("/api/pick", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mode: "one" }),
+  });
+  const data = await response.json().catch(() => ({}));
+  const picked = (data.paths || []).filter(Boolean);
+  if (!picked.length) return;
+  saveSettings({ excludeDirs: [...new Set([...state.settings.excludeDirs, ...picked])] });
+});
+viewer.addEventListener("wheel", (event) => {
+  if (viewer.hidden || viewerImg.hidden || event.target.closest("#viewer-info")) return;
+  event.preventDefault();
+  const next = Math.min(8, Math.max(1, viewScale * (event.deltaY < 0 ? 1.12 : 1 / 1.12)));
+  if (next <= 1.01) {
+    resetZoom();
+    return;
+  }
+  const rect = viewerImg.getBoundingClientRect();
+  const ox = event.clientX - (rect.left + rect.width / 2);
+  const oy = event.clientY - (rect.top + rect.height / 2);
+  const ratio = next / viewScale;
+  viewX = ox - (ox - viewX) * ratio;
+  viewY = oy - (oy - viewY) * ratio;
+  viewScale = next;
+  applyZoom();
+}, { passive: false });
+let pan = null;
+viewerImg.addEventListener("pointerdown", (event) => {
+  if (viewScale <= 1 || event.button !== 0) return;
+  pan = { x: event.clientX, y: event.clientY, ox: viewX, oy: viewY };
+  viewerImg.setPointerCapture(event.pointerId);
+});
+viewerImg.addEventListener("pointermove", (event) => {
+  if (!pan) return;
+  viewX = pan.ox + event.clientX - pan.x;
+  viewY = pan.oy + event.clientY - pan.y;
+  applyZoom();
+});
+viewerImg.addEventListener("pointerup", () => { pan = null; });
 scanBtn.addEventListener("click", async () => {
   scanBtn.disabled = true;
-  const response = await fetch("/api/library/scan", { method: "POST" });
+  const response = await fetch("/api/library/scan", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind: state.kind }),
+  });
   const data = await response.json().catch(() => ({}));
   scanBtn.disabled = false;
   if (!response.ok) {
@@ -747,7 +922,7 @@ window.addEventListener("keydown", (event) => {
   if (event.key === "ArrowRight") stepViewer(1);
 });
 
-refreshQuiet().then(async (data) => {
+loadSettings().then(() => refreshQuiet()).then(async (data) => {
   await loadTree();
   await loadPhotos(true);
   if (data.scanning) watchScan();

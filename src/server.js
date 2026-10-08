@@ -9,7 +9,7 @@ import { applyDeletions } from "./delete.js";
 import { pickFolders, recyclePaths, revealPath } from "./picker.js";
 import { renderPreviewJpeg } from "./preview.js";
 import { listDrives, pairedCameraPaths } from "./library-scan.js";
-import { libraryCount, libraryMeta, libraryPhoto, libraryTree, openLibrary, purgeScan, queryPhotos, removePhotos, setLibraryMeta, setRating, upsertPhotos } from "./library-db.js";
+import { libraryCount, libraryMeta, libraryPhoto, librarySettings, libraryTree, openLibrary, purgeScan, queryPhotos, removePhotos, saveLibrarySettings, setLibraryMeta, setRating, upsertPhotos } from "./library-db.js";
 import { describePhoto, readPhotoFacts } from "./photo-info.js";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, "..", "public");
@@ -34,6 +34,8 @@ function libraryState() {
   }
   return {
     total: libraryCount(db),
+    photos: libraryCount(db, "photo"),
+    videos: libraryCount(db, "video"),
     scanning: Boolean(libraryJob),
     progress: libraryJob?.progress || null,
     summary,
@@ -55,9 +57,10 @@ function finishLibrary(status, summary) {
   if (!job || job.settled) return;
   job.settled = true;
   if (status === "done") {
-    const seen = libraryCount(photosDb());
-    const removed = purgeScan(photosDb(), job.scanId);
-    const total = libraryCount(photosDb());
+    const kind = job.kind === "video" ? "video" : "photo";
+    const seen = libraryCount(photosDb(), kind);
+    const removed = purgeScan(photosDb(), job.scanId, kind);
+    const total = libraryCount(photosDb(), kind);
     const added = Math.max(0, seen - (job.beforeCount || 0));
     const saved = {
       finishedAt: Date.now(),
@@ -78,7 +81,8 @@ function finishLibrary(status, summary) {
   libraryJob = null;
 }
 
-function startLibraryScan() {
+function startLibraryScan(kind) {
+  const media = kind === "video" ? "video" : "photo";
   if (runningJob() || libraryJob) {
     const error = new Error("已有扫描在进行，请先停止或等待结束");
     error.status = 409;
@@ -93,11 +97,13 @@ function startLibraryScan() {
   const sab = new SharedArrayBuffer(4);
   const flag = new Int32Array(sab);
   const scanId = Date.now();
-  const beforeCount = libraryCount(photosDb());
+  const settings = librarySettings(photosDb());
+  const beforeCount = libraryCount(photosDb(), media);
   libraryJob = {
     worker: null,
     flag,
     scanId,
+    kind: media,
     beforeCount,
     roots,
     listeners: new Set(),
@@ -105,7 +111,14 @@ function startLibraryScan() {
     progress: { phase: "正在扫描全部磁盘", dirs: 0, files: 0, softwareSkipped: 0 },
   };
   const worker = new Worker(new URL("./library-worker.js", import.meta.url), {
-    workerData: { roots, sab, scanId },
+    workerData: {
+      roots,
+      sab,
+      scanId,
+      kind: media,
+      excludeDirs: settings.excludeDirs,
+      minEdge: media === "video" ? settings.minEdgeVideo : settings.minEdgePhoto,
+    },
   });
   libraryJob.worker = worker;
   worker.on("message", (message) => {
@@ -143,6 +156,45 @@ function sendJson(res, status, body) {
     "X-Content-Type-Options": "nosniff",
   });
   res.end(data);
+}
+
+const VIDEO_TYPES = {
+  ".mp4": "video/mp4",
+  ".m4v": "video/mp4",
+  ".mov": "video/quicktime",
+  ".avi": "video/x-msvideo",
+  ".mts": "video/mp2t",
+  ".m2ts": "video/mp2t",
+};
+
+function streamFile(req, res, filePath, type) {
+  const size = fs.statSync(filePath).size;
+  const header = {
+    "Content-Type": type,
+    "Accept-Ranges": "bytes",
+    "Cache-Control": "private, max-age=3600",
+    "X-Content-Type-Options": "nosniff",
+  };
+  const match = /bytes=(\d*)-(\d*)/.exec(req.headers.range || "");
+  if (!match) {
+    res.writeHead(200, { ...header, "Content-Length": size });
+    fs.createReadStream(filePath).pipe(res);
+    return;
+  }
+  let start = match[1] ? Number(match[1]) : 0;
+  let end = match[2] ? Number(match[2]) : size - 1;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start >= size || start > end) {
+    res.writeHead(416, { "Content-Range": `bytes */${size}` });
+    res.end();
+    return;
+  }
+  end = Math.min(end, size - 1);
+  res.writeHead(206, {
+    ...header,
+    "Content-Range": `bytes ${start}-${end}/${size}`,
+    "Content-Length": end - start + 1,
+  });
+  fs.createReadStream(filePath, { start, end }).pipe(res);
 }
 
 function readBody(req) {
@@ -548,7 +600,13 @@ async function handle(req, res) {
     }
 
     if (req.method === "GET" && url.pathname === "/api/library/tree") {
-      sendJson(res, 200, { days: libraryTree(photosDb(), { rating: url.searchParams.get("rating") }) });
+      sendJson(res, 200, {
+        days: libraryTree(photosDb(), {
+          rating: url.searchParams.get("rating"),
+          kind: url.searchParams.get("kind"),
+          origin: url.searchParams.get("origin"),
+        }),
+      });
       return;
     }
 
@@ -558,6 +616,8 @@ async function handle(req, res) {
         month: url.searchParams.get("month"),
         day: url.searchParams.get("day"),
         rating: url.searchParams.get("rating"),
+        kind: url.searchParams.get("kind"),
+        origin: url.searchParams.get("origin"),
         q: url.searchParams.get("q"),
         offset: url.searchParams.get("offset"),
         limit: url.searchParams.get("limit"),
@@ -566,8 +626,20 @@ async function handle(req, res) {
       return;
     }
 
+    if (req.method === "GET" && url.pathname === "/api/library/settings") {
+      sendJson(res, 200, librarySettings(photosDb()));
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/library/settings") {
+      const body = await readBody(req);
+      sendJson(res, 200, saveLibrarySettings(photosDb(), body));
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/library/scan") {
-      const started = startLibraryScan();
+      const body = await readBody(req);
+      const started = startLibraryScan(body.kind);
       sendJson(res, 200, started);
       return;
     }
@@ -642,6 +714,17 @@ async function handle(req, res) {
         clearInterval(timer);
         libraryJob?.listeners.delete(res);
       });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/library/media") {
+      const photo = libraryPhoto(photosDb(), path.resolve(String(url.searchParams.get("path") || "")));
+      const type = VIDEO_TYPES[String(photo?.ext || "").toLowerCase()];
+      if (!photo || photo.kind !== "video" || !type || !fs.existsSync(photo.path)) {
+        sendJson(res, 404, { error: "视频不在库里" });
+        return;
+      }
+      streamFile(req, res, photo.path, type);
       return;
     }
 

@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { catalogFiles, parseDriveList, utcParts } from "../src/library-scan.js";
-import { libraryCount, libraryPhoto, libraryTree, openLibrary, purgeScan, queryPhotos, setRating, upsertPhotos } from "../src/library-db.js";
+import { catalogFiles, classifyOrigin, isExcludedDir, parseDriveList, passesMinEdge, utcParts } from "../src/library-scan.js";
+import { libraryCount, libraryPhoto, librarySettings, libraryTree, openLibrary, purgeScan, queryPhotos, saveLibrarySettings, setRating, upsertPhotos } from "../src/library-db.js";
 import { pairedCameraPaths } from "../src/library-scan.js";
 import { buildJpeg } from "./builders.js";
 
@@ -63,4 +63,39 @@ test("同目录同名的 CR2 和 JPG 会一起列出", () => {
   const paired = pairedCameraPaths(jpg).map((item) => path.basename(item).toLowerCase()).sort();
   assert.deepEqual(paired, ["img_0001.cr2", "img_0001.jpg"]);
   assert.deepEqual(pairedCameraPaths(path.join(dir, "other.jpg")).map((item) => path.basename(item)), ["other.jpg"]);
+});
+
+test("区分相机和手机，排除目录不会误伤相邻文件夹", () => {
+  assert.equal(classifyOrigin(".CR2", ""), "camera");
+  assert.equal(classifyOrigin(".jpg", "Apple iPhone 14"), "phone");
+  assert.equal(classifyOrigin(".jpg", "Canon EOS R5"), "camera");
+  assert.equal(classifyOrigin(".heic", ""), "phone");
+  assert.equal(classifyOrigin(".mts", ""), "camera");
+  assert.equal(classifyOrigin(".jpg", ""), "");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "photo-exclude-"));
+  const sibling = `${root}-other`;
+  fs.mkdirSync(path.join(root, "child"), { recursive: true });
+  fs.mkdirSync(sibling);
+  assert.equal(isExcludedDir(path.join(root, "child"), [root]), true);
+  assert.equal(isExcludedDir(sibling, [root]), false);
+  assert.equal(passesMinEdge(640, 480, 800), false);
+  assert.equal(passesMinEdge(1920, 1080, 800), true);
+  assert.equal(passesMinEdge(0, 0, 2000), true);
+
+  const db = openLibrary(path.join(root, "library.sqlite"));
+  const saved = saveLibrarySettings(db, { excludeDirs: [root], minEdgePhoto: 1200, minEdgeVideo: 480 });
+  assert.equal(saved.minEdgePhoto, 1200);
+  assert.equal(saved.minEdgeVideo, 480);
+  assert.equal(saved.excludeDirs[0].toLowerCase(), path.resolve(root).toLowerCase());
+  assert.deepEqual(librarySettings(db).excludeDirs, saved.excludeDirs);
+  const base = { size: 10, mtimeMs: 1, captureMs: 1, year: 2024, month: 1, day: 2, width: 100, height: 100 };
+  upsertPhotos(db, [
+    { ...base, path: path.join(root, "a.jpg"), name: "a.jpg", ext: ".jpg", dir: root, kind: "photo", origin: "camera" },
+    { ...base, path: path.join(root, "b.mp4"), name: "b.mp4", ext: ".mp4", dir: root, kind: "video", origin: "phone" },
+  ], 1);
+  assert.equal(queryPhotos(db, { kind: "video" }).length, 1);
+  assert.equal(queryPhotos(db, { kind: "photo", origin: "camera" }).length, 1);
+  assert.equal(queryPhotos(db, { kind: "photo", origin: "phone" }).length, 0);
+  assert.equal(libraryCount(db, "video"), 1);
+  db.close();
 });

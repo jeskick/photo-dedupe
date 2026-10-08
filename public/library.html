@@ -9,17 +9,28 @@
 </head>
 <body>
   <aside class="nav">
-    <div class="brand">照片</div>
-    <button id="nav-all" class="nav-item on" type="button">
-      <span class="ico" aria-hidden="true"></span>
-      照片
-    </button>
+    <div class="mode">
+      <button id="nav-all" class="nav-item on" type="button">照片</button>
+      <button id="nav-video" class="nav-item" type="button">视频</button>
+    </div>
     <section class="fold grow open" data-fold="time">
       <button class="fold-head" type="button" aria-expanded="true">
         <span>时间</span>
         <span class="chev" aria-hidden="true"></span>
       </button>
       <div id="tree" class="tree fold-body"></div>
+    </section>
+    <section class="fold open" data-fold="origin">
+      <button class="fold-head" type="button" aria-expanded="true">
+        <span>来源</span>
+        <span class="chev" aria-hidden="true"></span>
+      </button>
+      <div class="fold-body">
+        <div id="origins" class="ratings" role="group" aria-label="按拍摄来源查看">
+          <button type="button" data-origin="camera">相机</button>
+          <button type="button" data-origin="phone">手机</button>
+        </div>
+      </div>
     </section>
     <section class="fold open" data-fold="rating">
       <button class="fold-head" type="button" aria-expanded="true">
@@ -43,6 +54,19 @@
       </button>
       <div class="fold-body nav-foot">
         <p id="count">还没有照片</p>
+        <label class="scan-line">长边小于
+          <select id="min-edge" aria-label="小于多少像素不收录">
+            <option value="0">不限制</option>
+            <option value="480">480</option>
+            <option value="800">800</option>
+            <option value="1200">1200</option>
+            <option value="2000">2000</option>
+          </select>
+          不收录
+        </label>
+        <ul id="exclude-list" class="exclude"></ul>
+        <button id="exclude-add" class="quiet link" type="button">添加不扫描的目录</button>
+        <p class="scan-note">下次扫描才生效。</p>
         <button id="scan" type="button">扫描全部磁盘</button>
         <button id="stop" class="quiet" type="button" hidden>停止</button>
         <p id="scan-status" class="hint"></p>
@@ -71,6 +95,7 @@
       <aside id="viewer-info" class="viewer-info" hidden></aside>
       <button id="viewer-prev" class="quiet edge" type="button" aria-label="上一张">‹</button>
       <img id="viewer-img" alt="">
+      <video id="viewer-video" hidden controls playsinline></video>
       <button id="viewer-next" class="quiet edge" type="button" aria-label="下一张">›</button>
     </div>
   </div>

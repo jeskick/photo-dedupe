@@ -13,6 +13,9 @@ function emitBatch() {
 
 try {
   const result = catalogFiles(workerData.roots, {
+    kind: workerData.kind,
+    excludeDirs: workerData.excludeDirs || [],
+    minEdge: workerData.minEdge || 0,
     isCancelled: () => Atomics.load(flag, 0) !== 0,
     onFile: (file) => {
       batch.push(file);

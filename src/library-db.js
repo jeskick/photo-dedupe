@@ -34,14 +34,28 @@ export function openLibrary(dbPath) {
   if (!columns.some((column) => column.name === "rating")) {
     db.exec("ALTER TABLE photos ADD COLUMN rating INTEGER NOT NULL DEFAULT 0");
   }
+  const again = db.prepare("PRAGMA table_info(photos)").all();
+  if (!again.some((column) => column.name === "kind")) {
+    db.exec("ALTER TABLE photos ADD COLUMN kind TEXT NOT NULL DEFAULT 'photo'");
+  }
+  if (!again.some((column) => column.name === "origin")) {
+    db.exec("ALTER TABLE photos ADD COLUMN origin TEXT NOT NULL DEFAULT ''");
+  }
+  if (!again.some((column) => column.name === "width")) {
+    db.exec("ALTER TABLE photos ADD COLUMN width INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!again.some((column) => column.name === "height")) {
+    db.exec("ALTER TABLE photos ADD COLUMN height INTEGER NOT NULL DEFAULT 0");
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS photos_kind ON photos(kind, capture_ms DESC)");
   return db;
 }
 
 export function upsertPhotos(db, photos, scanId) {
   if (!photos.length) return;
   const stmt = db.prepare(`
-    INSERT INTO photos (path, name, ext, dir, size, mtime_ms, capture_ms, year, month, day, scan_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO photos (path, name, ext, dir, size, mtime_ms, capture_ms, year, month, day, scan_id, kind, origin, width, height)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(path) DO UPDATE SET
       name = excluded.name,
       ext = excluded.ext,
@@ -52,7 +66,11 @@ export function upsertPhotos(db, photos, scanId) {
       year = excluded.year,
       month = excluded.month,
       day = excluded.day,
-      scan_id = excluded.scan_id
+      scan_id = excluded.scan_id,
+      kind = excluded.kind,
+      origin = excluded.origin,
+      width = excluded.width,
+      height = excluded.height
   `);
   db.exec("BEGIN");
   try {
@@ -69,6 +87,10 @@ export function upsertPhotos(db, photos, scanId) {
         photo.month,
         photo.day,
         scanId,
+        photo.kind === "video" ? "video" : "photo",
+        photo.origin === "camera" || photo.origin === "phone" ? photo.origin : "",
+        Number(photo.width) || 0,
+        Number(photo.height) || 0,
       );
     }
     db.exec("COMMIT");
@@ -78,8 +100,9 @@ export function upsertPhotos(db, photos, scanId) {
   }
 }
 
-export function purgeScan(db, scanId) {
-  return db.prepare("DELETE FROM photos WHERE scan_id != ?").run(scanId).changes || 0;
+export function purgeScan(db, scanId, kind = "photo") {
+  const media = kind === "video" ? "video" : "photo";
+  return db.prepare("DELETE FROM photos WHERE kind = ? AND scan_id != ?").run(media, scanId).changes || 0;
 }
 
 export function setLibraryMeta(db, key, value) {
@@ -93,12 +116,52 @@ export function libraryMeta(db) {
   return meta;
 }
 
-export function libraryCount(db) {
+export function libraryCount(db, kind) {
+  if (kind === "photo" || kind === "video") {
+    return db.prepare("SELECT COUNT(*) AS count FROM photos WHERE kind = ?").get(kind).count;
+  }
   return db.prepare("SELECT COUNT(*) AS count FROM photos").get().count;
 }
 
 export function libraryPhoto(db, filePath) {
-  return db.prepare("SELECT path, name, ext, dir, size, mtime_ms AS mtimeMs, capture_ms AS captureMs, year, month, day, rating FROM photos WHERE path = ?").get(filePath) || null;
+  return db.prepare("SELECT path, name, ext, dir, size, mtime_ms AS mtimeMs, capture_ms AS captureMs, year, month, day, rating, kind, origin, width, height FROM photos WHERE path = ?").get(filePath) || null;
+}
+
+const MIN_EDGES = new Set([0, 480, 800, 1200, 2000]);
+
+export function librarySettings(db) {
+  let parsed = {};
+  try {
+    parsed = JSON.parse(libraryMeta(db).librarySettings || "{}");
+  } catch {
+    parsed = {};
+  }
+  const minEdge = parsed.minEdge || {};
+  const photoEdge = Number(minEdge.photo);
+  const videoEdge = Number(minEdge.video);
+  return {
+    excludeDirs: Array.isArray(parsed.excludeDirs) ? parsed.excludeDirs.map((item) => String(item)).filter(Boolean) : [],
+    minEdgePhoto: MIN_EDGES.has(photoEdge) ? photoEdge : 0,
+    minEdgeVideo: MIN_EDGES.has(videoEdge) ? videoEdge : 0,
+  };
+}
+
+export function saveLibrarySettings(db, input = {}) {
+  const current = librarySettings(db);
+  const excludeDirs = Array.isArray(input.excludeDirs)
+    ? [...new Set(input.excludeDirs.map((item) => path.resolve(String(item || ""))).filter(Boolean))]
+    : current.excludeDirs;
+  const photoEdge = Number(input.minEdgePhoto);
+  const videoEdge = Number(input.minEdgeVideo);
+  const next = {
+    excludeDirs,
+    minEdge: {
+      photo: MIN_EDGES.has(photoEdge) ? photoEdge : current.minEdgePhoto,
+      video: MIN_EDGES.has(videoEdge) ? videoEdge : current.minEdgeVideo,
+    },
+  };
+  setLibraryMeta(db, "librarySettings", JSON.stringify(next));
+  return librarySettings(db);
 }
 
 export function setRating(db, filePath, rating) {
@@ -125,6 +188,14 @@ function ratingClause(filter, where, params) {
   if (rating >= 1 && rating <= 5) {
     where.push("rating = ?");
     params.push(rating);
+  }
+  if (filter.kind === "photo" || filter.kind === "video") {
+    where.push("kind = ?");
+    params.push(filter.kind);
+  }
+  if (filter.origin === "camera" || filter.origin === "phone") {
+    where.push("origin = ?");
+    params.push(filter.origin);
   }
 }
 
@@ -160,7 +231,7 @@ export function queryPhotos(db, filter = {}) {
   const offset = Math.max(0, Number(filter.offset) || 0);
   params.push(limit, offset);
   const sql = `
-    SELECT path, name, ext, dir, capture_ms AS captureMs, year, month, day, rating
+    SELECT path, name, ext, dir, capture_ms AS captureMs, year, month, day, rating, kind, origin, width, height
     FROM photos
     ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
     ORDER BY capture_ms DESC, path COLLATE NOCASE

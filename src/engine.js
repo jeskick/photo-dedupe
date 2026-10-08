@@ -47,7 +47,8 @@ function hashFile(filePath, isCancelled, onBytes) {
   });
 }
 
-export function walkMedia(roots, extensions, isCancelled, onFile, onProgress) {
+export function walkMedia(roots, extensions, isCancelled, onFile, onProgress, extra = {}) {
+  const skipDir = extra.skipDir || (() => false);
   const stack = [...roots];
   const seen = new Set();
   const errors = [];
@@ -66,7 +67,7 @@ export function walkMedia(roots, extensions, isCancelled, onFile, onProgress) {
     const dirKey = dir.toLowerCase();
     if (seen.has(dirKey)) continue;
     seen.add(dirKey);
-    if (isSoftwareBoundary(dir)) {
+    if (isSoftwareBoundary(dir) || skipDir(dir)) {
       softwareSkipped += 1;
       continue;
     }
@@ -92,7 +93,7 @@ export function walkMedia(roots, extensions, isCancelled, onFile, onProgress) {
       const full = path.join(dir, entry.name);
       if (entry.isSymbolicLink()) continue;
       if (entry.isDirectory()) {
-        if (isSoftwareBoundary(full)) softwareSkipped += 1;
+        if (isSoftwareBoundary(full) || skipDir(full)) softwareSkipped += 1;
         else stack.push(full);
         continue;
       }

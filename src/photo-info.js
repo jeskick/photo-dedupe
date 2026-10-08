@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 
 const TYPE_LEN = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 7: 1, 9: 4, 10: 8 };
 const PROGRAM = {
@@ -220,6 +221,65 @@ function factsFromBuffer(buf) {
   return {};
 }
 
+function videoDimensions(buf) {
+  let bestW = 0;
+  let bestH = 0;
+  let from = 0;
+  while (from < buf.length) {
+    const at = buf.indexOf("tkhd", from);
+    if (at < 0 || at + 96 > buf.length) break;
+    const version = buf[at + 4];
+    const widthAt = version === 1 ? at + 92 : at + 80;
+    if ((version === 0 || version === 1) && widthAt + 8 <= buf.length) {
+      const width = buf.readUInt32BE(widthAt) / 65536;
+      const height = buf.readUInt32BE(widthAt + 4) / 65536;
+      if (width > bestW && width < 20000 && height > 0 && height < 20000) {
+        bestW = Math.round(width);
+        bestH = Math.round(height);
+      }
+    }
+    from = at + 4;
+  }
+  return { width: bestW, height: bestH };
+}
+
+export function probeMedia(filePath, ext) {
+  const lower = String(ext || path.extname(filePath) || "").toLowerCase();
+  const video = [".mov", ".mp4", ".m4v", ".avi", ".mts", ".m2ts"].includes(lower);
+  let fh;
+  try {
+    fh = fs.openSync(filePath, "r");
+    const size = fs.fstatSync(fh).size;
+    const headTake = Math.min(size, video ? 2 * 1024 * 1024 : 768 * 1024);
+    const head = Buffer.alloc(headTake);
+    fs.readSync(fh, head, 0, headTake, 0);
+    let tail = Buffer.alloc(0);
+    if (video && size > headTake + 1024) {
+      const tailTake = Math.min(2 * 1024 * 1024, size - headTake);
+      tail = Buffer.alloc(tailTake);
+      fs.readSync(fh, tail, 0, tailTake, size - tailTake);
+    }
+    if (!video) {
+      const facts = factsFromBuffer(head);
+      return {
+        width: facts.width || 0,
+        height: facts.height || 0,
+        text: [facts.make, facts.model, facts.lens].filter(Boolean).join(" "),
+      };
+    }
+    const sample = Buffer.concat([
+      head.subarray(0, Math.min(head.length, 256 * 1024)),
+      tail.subarray(0, Math.min(tail.length, 256 * 1024)),
+    ]);
+    const dims = videoDimensions(Buffer.concat([head, tail]));
+    return { width: dims.width || 0, height: dims.height || 0, text: sample.toString("latin1") };
+  } catch {
+    return { width: 0, height: 0, text: "" };
+  } finally {
+    if (fh != null) fs.closeSync(fh);
+  }
+}
+
 export function readPhotoFacts(filePath) {
   let fh;
   try {
@@ -242,8 +302,11 @@ export function describePhoto(photo, facts = {}) {
     fields.push({ label, value: String(value) });
   };
   add("文件名", photo.name);
+  add("来源", photo.origin === "camera" ? "相机拍摄" : photo.origin === "phone" ? "手机拍摄" : "");
   add("拍摄时间", prettyTime(facts.time) || (photo.year ? `${photo.year}年${photo.month}月${photo.day}日` : ""));
-  add("尺寸", facts.width && facts.height ? `${facts.width} × ${facts.height}` : "");
+  const width = facts.width || photo.width;
+  const height = facts.height || photo.height;
+  add("尺寸", width && height ? `${width} × ${height}` : "");
   add("大小", formatBytes(photo.size));
   add("相机", [facts.make, facts.model].filter(Boolean).join(" "));
   add("镜头", facts.lens);
