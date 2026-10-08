@@ -9,7 +9,7 @@ import { applyDeletions } from "./delete.js";
 import { pickFolders, recyclePaths, revealPath } from "./picker.js";
 import { renderPreviewJpeg } from "./preview.js";
 import { listDrives, pairedCameraPaths } from "./library-scan.js";
-import { libraryCount, libraryMarks, libraryMeta, libraryPhoto, libraryPhotoPaths, librarySettings, libraryTree, namedFaces, openLibrary, photoFaces, purgeScan, queryPhotos, removePhotos, renameFace, saveLibrarySettings, saveRecognition, setLibraryMeta, setRating, upsertPhotos } from "./library-db.js";
+import { libraryCount, libraryMarks, libraryMeta, libraryPhoto, libraryPhotoPaths, librarySettings, libraryTree, loadPeople, openLibrary, photoFaces, purgeScan, queryPhotos, removePhotos, renameFace, renamePerson, saveLibrarySettings, saveRecognition, setLibraryMeta, setRating, upsertPhotos } from "./library-db.js";
 import { describePhoto, readPhotoFacts } from "./photo-info.js";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, "..", "public");
@@ -163,13 +163,13 @@ function startRecognize(onlyPath) {
     throw error;
   }
   const sab = new SharedArrayBuffer(4);
-  const named = namedFaces(photosDb());
+  const people = loadPeople(photosDb());
   recognizeNote = "";
   recognizeJob = {
     flag: new Int32Array(sab),
     worker: null,
-    named,
-    progress: { phase: "正在识别人物和场景", done: 0, total: paths.length },
+    people,
+    progress: { phase: "正在准备人物模型", done: 0, total: paths.length },
   };
   const worker = new Worker(new URL("./recognize-worker.js", import.meta.url), {
     workerData: { paths, sab },
@@ -177,19 +177,26 @@ function startRecognize(onlyPath) {
   recognizeJob.worker = worker;
   worker.on("message", (message) => {
     if (!recognizeJob || recognizeJob.worker !== worker) return;
+    if (message.type === "status") {
+      recognizeJob.progress = { ...recognizeJob.progress, phase: message.message };
+      return;
+    }
     if (message.type === "item") {
       const item = message.item || {};
       if (item.path && !item.error) {
-        saveRecognition(photosDb(), item.path, item.faces || [], item.labels || [], recognizeJob.named);
+        saveRecognition(photosDb(), item.path, item.faces || [], item.labels || [], recognizeJob.people);
       }
       recognizeJob.progress = {
-        phase: "正在识别人物和场景",
+        ...recognizeJob.progress,
+        phase: "正在识别全部照片",
         done: recognizeJob.progress.done + 1,
         total: recognizeJob.progress.total,
       };
       return;
     }
     if (message.type === "failed") recognizeNote = message.message || "人物识别失败";
+    if (message.type === "cancelled") recognizeNote = "已停止识别。已经归好的组会留在左侧。";
+    if (message.type === "done") recognizeNote = "";
     if (message.type === "done" || message.type === "cancelled" || message.type === "failed") {
       recognizeJob = null;
     }
@@ -671,6 +678,7 @@ async function handle(req, res) {
         origin: url.searchParams.get("origin"),
         label: url.searchParams.get("label"),
         person: url.searchParams.get("person"),
+        personId: url.searchParams.get("personId"),
         }),
       });
       return;
@@ -686,6 +694,7 @@ async function handle(req, res) {
         origin: url.searchParams.get("origin"),
         label: url.searchParams.get("label"),
         person: url.searchParams.get("person"),
+        personId: url.searchParams.get("personId"),
         q: url.searchParams.get("q"),
         offset: url.searchParams.get("offset"),
         limit: url.searchParams.get("limit"),
@@ -733,7 +742,9 @@ async function handle(req, res) {
 
     if (req.method === "POST" && url.pathname === "/api/library/face") {
       const body = await readBody(req);
-      const result = renameFace(photosDb(), body.id, body.name);
+      const result = body.personId
+        ? renamePerson(photosDb(), body.personId, body.name)
+        : renameFace(photosDb(), body.id, body.name);
       if (!result) {
         sendJson(res, 404, { error: "找不到这张脸" });
         return;

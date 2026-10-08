@@ -14,6 +14,20 @@ export function cosine(left, right) {
   return dot / Math.sqrt(leftNorm * rightNorm);
 }
 
+export function bestPerson(embedding, people, threshold = SAME_PERSON) {
+  let found = null;
+  let score = threshold;
+  for (const person of people || []) {
+    if (!person.embedding) continue;
+    const value = cosine(embedding, person.embedding);
+    if (value >= score) {
+      score = value;
+      found = person;
+    }
+  }
+  return found;
+}
+
 export function bestName(embedding, named, threshold = SAME_PERSON) {
   let name = "";
   let score = threshold;

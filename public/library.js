@@ -39,7 +39,8 @@ const state = {
   origin: "",
   label: "",
   person: "",
-  marks: { labels: { person: 0, animal: 0, landscape: 0 }, names: [] },
+  personId: "",
+  marks: { labels: { person: 0, animal: 0, landscape: 0 }, people: [] },
   settings: { excludeDirs: [], minEdgePhoto: 0, minEdgeVideo: 0 },
   loading: false,
   done: false,
@@ -493,8 +494,10 @@ function renderMosaic(keepScroll) {
     const sceneName = { person: "人物", animal: "动物", landscape: "风景" };
     const emptyText = state.q
       ? `没有符合搜索的${noun}。`
-      : state.person
-        ? `还没有标成「${state.person}」的照片。`
+      : state.personId
+        ? "这一组还没有照片。"
+        : state.person
+          ? `还没有标成「${state.person}」的照片。`
         : state.label
           ? `还没有标成${sceneName[state.label] || "这个类型"}的照片。`
           : state.origin
@@ -531,6 +534,7 @@ async function loadPhotos(reset) {
   if (state.origin) params.set("origin", state.origin);
   if (state.label) params.set("label", state.label);
   if (state.person) params.set("person", state.person);
+  if (state.personId) params.set("personId", state.personId);
   let response;
   try {
     response = await fetch(`/api/library/photos?${params}`);
@@ -561,6 +565,7 @@ async function loadTree() {
   if (state.origin) params.set("origin", state.origin);
   if (state.label) params.set("label", state.label);
   if (state.person) params.set("person", state.person);
+  if (state.personId) params.set("personId", state.personId);
   const response = await fetch(`/api/library/tree?${params}`);
   const data = await response.json();
   if (gen !== treeGen) return;
@@ -611,57 +616,11 @@ async function showPhotoInfo(photo) {
   if (!data.fields?.length) list.append(h("p", { class: "hint", text: data.error || "没有读到拍摄信息" }));
   const faces = h("div", { class: "face-names" });
   if (state.kind !== "video") {
-    for (const face of data.faces || []) faces.append(faceNameInput(face));
-    if (!(data.faces || []).length) faces.append(h("p", { class: "hint", text: "名字写在左侧「标记」。这张还没有人脸，点那里的「识别这张」。" }));
+    const named = [...new Set((data.faces || []).map((face) => face.name).filter(Boolean))];
+    faces.append(h("p", { class: "hint", text: named.length ? `人物：${named.join("、")}` : "人物分组在左侧「标记」。识别完成后点一组再起名。" }));
   }
   if (gen !== infoGen) return;
   infoEl.replaceChildren(faces, list);
-  renderFaceEditor(photo, data.faces || []);
-}
-
-function faceNameInput(face) {
-  const input = h("input", { type: "text", value: face.name || "", placeholder: "在这里写名字", maxlength: "40", "aria-label": "人物名字" });
-  input.addEventListener("change", () => saveFaceName(face.id, input));
-  return input;
-}
-
-async function saveFaceName(faceId, input) {
-  const response = await fetch("/api/library/face", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id: faceId, name: input.value }),
-  });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    statusEl.textContent = result.error || "名字没能保存";
-    return;
-  }
-  statusEl.textContent = result.name
-    ? `已把 ${result.count} 张相似的脸标成「${result.name}」。`
-    : "已取消这一张的名字。";
-  await loadMarks();
-  if (state.open >= 0) showPhotoInfo(state.photos[state.open]);
-  else if (state.person || state.label) loadPhotos(true);
-}
-
-function renderFaceEditor(photo, faces) {
-  const box = document.querySelector("#face-editor");
-  if (!box) return;
-  box.replaceChildren();
-  if (!photo || state.kind === "video") {
-    box.append(h("p", { class: "hint", text: "单击一张照片，名字就写在这里。" }));
-    return;
-  }
-  document.querySelector('[data-fold="marks"]')?.classList.add("open");
-  if (!faces.length) {
-    box.append(h("p", { class: "hint", text: "这张还没有人脸。识别完就能在下面写名字。" }));
-    const button = h("button", { type: "button", text: "识别这张" });
-    button.addEventListener("click", () => startRecognizeRequest(photo.path));
-    box.append(button);
-    return;
-  }
-  box.append(h("p", { class: "hint", text: "人物名字。留空只取消这一张。" }));
-  for (const face of faces) box.append(faceNameInput(face));
 }
 
 let viewScale = 1;
@@ -713,7 +672,6 @@ function closeViewer() {
   infoEl.hidden = true;
   infoEl.replaceChildren();
   state.open = -1;
-  renderFaceEditor(null, []);
 }
 
 function stepViewer(delta) {
@@ -855,6 +813,7 @@ function setKind(kind) {
   if (kind === "video") {
     state.label = "";
     state.person = "";
+    state.personId = "";
     renderMarks();
   }
   state.year = "";
@@ -873,24 +832,51 @@ function renderMarks() {
   for (const button of document.querySelectorAll("#scenes button")) {
     const count = state.marks.labels?.[button.dataset.label] || 0;
     button.textContent = `${SCENE_TEXT[button.dataset.label]} ${count}`;
-    button.classList.toggle("on", state.label === button.dataset.label && !state.person);
+    button.classList.toggle("on", state.label === button.dataset.label && !state.personId);
   }
   const names = document.querySelector("#names");
   names.replaceChildren();
-  for (const item of state.marks.names || []) {
-    const button = h("button", { type: "button", text: `${item.name} ${item.count}` });
-    button.classList.toggle("on", state.person === item.name);
+  let unnamed = 0;
+  for (const item of state.marks.people || []) {
+    const title = item.name || `人物 ${++unnamed}`;
+    const button = h("button", { type: "button", text: `${title}  ${item.count}` });
+    button.classList.toggle("on", String(state.personId) === String(item.id));
     button.addEventListener("click", () => {
-      state.person = state.person === item.name ? "" : item.name;
+      state.personId = String(state.personId) === String(item.id) ? "" : String(item.id);
+      state.person = "";
       state.label = "";
-      if (state.person && state.kind === "video") state.kind = "photo";
-      renderMarks();
-      loadTree();
-      loadPhotos(true);
-      stageEl.scrollTop = 0;
+      if (state.personId && state.kind === "video") state.kind = "photo";
+      applyMarkFilter();
     });
     names.append(button);
   }
+  renderNameBox();
+}
+
+function renderNameBox() {
+  const box = document.querySelector("#face-editor");
+  if (!box) return;
+  box.replaceChildren();
+  const selected = (state.marks.people || []).find((item) => String(item.id) === String(state.personId));
+  if (!selected) return;
+  const input = h("input", { type: "text", value: selected.name || "", placeholder: "给这一组起名", maxlength: "40", "aria-label": "给这一组起名" });
+  input.addEventListener("change", async () => {
+    const response = await fetch("/api/library/face", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ personId: selected.id, name: input.value }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      statusEl.textContent = result.error || "名字没能保存";
+      return;
+    }
+    statusEl.textContent = result.name
+      ? `这一组 ${result.count} 张已标成「${result.name}」。以后再识别会自动用这个名字。`
+      : "已取消这一组的名字。";
+    await loadMarks();
+  });
+  box.append(input);
 }
 
 async function loadMarks() {
@@ -912,8 +898,9 @@ document.querySelector("#scenes").addEventListener("click", (event) => {
   const button = event.target.closest("button");
   if (!button) return;
   const label = button.dataset.label;
-  state.label = state.label === label && !state.person ? "" : label;
+  state.label = state.label === label && !state.personId ? "" : label;
   state.person = "";
+  state.personId = "";
   if (state.label && state.kind === "video") state.kind = "photo";
   applyMarkFilter();
 });
@@ -928,13 +915,19 @@ async function watchRecognize() {
     const running = Boolean(data.recognizing);
     recognizeBtn.hidden = running;
     recognizeStop.hidden = !running;
-    if (data.recognize) statusEl.textContent = `${data.recognize.phase} ${data.recognize.done || 0} / ${data.recognize.total || 0}`;
+    const note = document.querySelector("#recognize-status");
+    if (data.recognize) {
+      const text = `${data.recognize.phase} ${data.recognize.done || 0} / ${data.recognize.total || 0}`;
+      statusEl.textContent = text;
+      if (note) note.textContent = text;
+    }
     if (!running) {
       clearInterval(recognizeTimer);
-      statusEl.textContent = data.recognizeNote || "识别结束。有人脸的话，名字写在左侧「标记」。";
+      const text = data.recognizeNote || "识别完成。左侧是同一人的分组和张数，点一组再起名。";
+      statusEl.textContent = text;
+      if (note) note.textContent = text;
       await loadMarks();
-      if (state.open >= 0) showPhotoInfo(state.photos[state.open]);
-      else if (state.label || state.person) loadPhotos(true);
+      if (state.personId || state.label || state.person) loadPhotos(true);
     }
   }, 1000);
 }
@@ -952,7 +945,10 @@ async function startRecognizeRequest(filePath) {
   }
   document.querySelector("#recognize").hidden = true;
   document.querySelector("#recognize-stop").hidden = false;
-  statusEl.textContent = filePath ? "正在识别这张照片。" : `开始识别 ${data.total} 张照片。`;
+  const text = `开始识别全部 ${data.total} 张照片。第一次会先下载模型。`;
+  statusEl.textContent = text;
+  const note = document.querySelector("#recognize-status");
+  if (note) note.textContent = text;
   watchRecognize();
 }
 
@@ -1118,7 +1114,6 @@ window.addEventListener("keydown", (event) => {
 
 loadSettings().then(() => refreshQuiet()).then(async (data) => {
   await loadMarks();
-  renderFaceEditor(null, []);
   await loadTree();
   await loadPhotos(true);
   if (data.recognizing) watchRecognize();

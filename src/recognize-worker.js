@@ -23,7 +23,9 @@ child.stdout.on("data", (chunk) => {
     stdout = stdout.slice(split + 1);
     if (line) {
       try {
-        post({ type: "item", item: JSON.parse(line) });
+        const item = JSON.parse(line);
+        if (item.status) post({ type: "status", message: item.status });
+        else post({ type: "item", item });
       } catch {
         stderr += line;
       }
@@ -59,5 +61,17 @@ const timer = setInterval(() => {
   child.kill();
 }, 300);
 child.on("close", () => clearInterval(timer));
-child.stdin.write(`${(workerData.paths || []).join("\n")}\n`, "utf8");
-child.stdin.end();
+const paths = workerData.paths || [];
+let pathIndex = 0;
+function writePaths() {
+  while (pathIndex < paths.length) {
+    const ok = child.stdin.write(`${paths[pathIndex]}\n`, "utf8");
+    pathIndex += 1;
+    if (!ok) {
+      child.stdin.once("drain", writePaths);
+      return;
+    }
+  }
+  child.stdin.end();
+}
+writePaths();

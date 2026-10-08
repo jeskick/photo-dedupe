@@ -70,7 +70,12 @@ def scene_labels(rgb, session):
     return sorted(found)
 
 
+def emit(payload):
+    print(json.dumps(payload, ensure_ascii=False), flush=True)
+
+
 def main():
+    emit({"status": "正在准备人物模型，第一次会下载到本机"})
     try:
         import cv2
         import onnxruntime as ort
@@ -80,9 +85,11 @@ def main():
         sys.exit(1)
     faces_app = FaceAnalysis(name="buffalo_s", root=str(MODEL_DIR / "insightface"), providers=["CPUExecutionProvider"])
     faces_app.prepare(ctx_id=-1, det_size=(640, 640))
+    emit({"status": "正在准备风景和动物模型"})
     session = None
     if ensure_yolo():
         session = ort.InferenceSession(str(YOLO_PATH), providers=["CPUExecutionProvider"])
+    emit({"status": "正在识别全部照片"})
     for raw in sys.stdin:
         path = raw.strip()
         if not path:

@@ -3,11 +3,13 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { bestName, facesToRename } from "../src/faces.js";
-import { libraryMarks, openLibrary, photoFaces, purgeScan, queryPhotos, renameFace, saveRecognition, upsertPhotos } from "../src/library-db.js";
+import { bestName, bestPerson, facesToRename } from "../src/faces.js";
+import { libraryMarks, loadPeople, openLibrary, photoFaces, purgeScan, queryPhotos, renameFace, saveRecognition, upsertPhotos } from "../src/library-db.js";
 
 test("相似的脸用同一个名字，差得远的不会带上", () => {
   const named = [{ name: "小明", embedding: [1, 0, 0] }];
+  assert.equal(bestPerson([0.99, 0.05, 0], [{ id: 1, name: "小明", embedding: [1, 0, 0] }]).name, "小明");
+  assert.equal(bestPerson([0, 1, 0], [{ id: 1, name: "小明", embedding: [1, 0, 0] }]), null);
   assert.equal(bestName([0.99, 0.05, 0], named), "小明");
   assert.equal(bestName([0, 1, 0], named), "");
   const target = { id: 1, embedding: [1, 0, 0] };
@@ -45,9 +47,15 @@ test("标记名字后能按人和场景筛选，删照片会清掉标记", () =>
   const renamed = renameFace(db, face.id, "小明");
   assert.equal(renamed.count, 2);
   assert.equal(queryPhotos(db, { person: "小明" }).length, 2);
-  assert.equal(libraryMarks(db).names[0].name, "小明");
+  assert.equal(libraryMarks(db).people.length, 1);
+  assert.equal(libraryMarks(db).people[0].count, 2);
+  assert.equal(queryPhotos(db, { personId: libraryMarks(db).people[0].id }).length, 2);
+  const third = { ...other, path: path.join(dir, "c.jpg"), name: "c.jpg" };
+  upsertPhotos(db, [third], 1);
+  saveRecognition(db, third.path, [[0.97, 0.04, 0]], [], loadPeople(db));
+  assert.equal(photoFaces(db, third.path)[0].name, "小明");
   purgeScan(db, 9);
-  assert.equal(libraryMarks(db).names.length, 0);
+  assert.equal(libraryMarks(db).people.length, 0);
   assert.equal(queryPhotos(db, { label: "person" }).length, 0);
   db.close();
 });
