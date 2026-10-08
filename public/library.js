@@ -363,6 +363,20 @@ async function deletePhoto(photo) {
   if (!state.done && state.photos.length < 40) loadPhotos(false);
 }
 
+function clearImageSelect() {
+  const selection = window.getSelection?.();
+  if (selection && selection.rangeCount) selection.removeAllRanges();
+}
+
+function blockImageSelect(element) {
+  element.addEventListener("selectstart", (event) => event.preventDefault());
+  element.addEventListener("mousedown", (event) => {
+    if (event.button !== 0 || event.detail < 2) return;
+    event.preventDefault();
+    clearImageSelect();
+  });
+}
+
 function naturalWidth(photo) {
   const height = rowHeight();
   const w = Number(photo.width) || 0;
@@ -446,6 +460,7 @@ function makeTile(photo, index) {
     event.stopPropagation();
   });
   tile.append(visual, tools);
+  blockImageSelect(tile);
   let timer = 0;
   tile.addEventListener("click", () => {
     clearTimeout(timer);
@@ -454,6 +469,7 @@ function makeTile(photo, index) {
   tile.addEventListener("dblclick", (event) => {
     event.preventDefault();
     clearTimeout(timer);
+    clearImageSelect();
     reveal(photo.path);
   });
   return tile;
@@ -1049,6 +1065,7 @@ function endPan() {
   viewerImg.classList.remove("panning");
 }
 viewerImg.addEventListener("dragstart", (event) => event.preventDefault());
+blockImageSelect(viewerImg);
 viewerImg.addEventListener("pointerdown", (event) => {
   if (viewScale <= 1 || event.button !== 0) return;
   event.preventDefault();
@@ -1173,7 +1190,9 @@ document.querySelector("#viewer-open").addEventListener("click", () => {
 });
 document.querySelector("#viewer-prev").addEventListener("click", () => stepViewer(-1));
 document.querySelector("#viewer-next").addEventListener("click", () => stepViewer(1));
-viewerImg.addEventListener("dblclick", () => {
+viewerImg.addEventListener("dblclick", (event) => {
+  event.preventDefault();
+  clearImageSelect();
   const photo = state.photos[state.open];
   if (photo) reveal(photo.path);
 });

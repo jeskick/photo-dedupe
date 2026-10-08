@@ -279,8 +279,8 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   overflow: hidden;
   height: var(--row-h, 180px);
 }
-.tile { cursor: pointer; }
-.tile img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+.tile { cursor: pointer; -webkit-user-select: none; user-select: none; }
+.tile img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; -webkit-user-select: none; user-select: none; }
 .tile-tools {
   position: absolute;
   top: 6px;
@@ -397,7 +397,8 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   justify-self: center;
   object-fit: contain;
 }
-#viewer-img { transform-origin: center center; user-select: none; -webkit-user-drag: none; }
+#viewer-img { transform-origin: center center; -webkit-user-select: none; user-select: none; -webkit-user-drag: none; }
+#viewer-img::selection { background: transparent; }
 #viewer-img.zoomed { cursor: grab; touch-action: none; }
 #viewer-img.zoomed.panning { cursor: grabbing; }
 #viewer-video[hidden] { display: none; }
