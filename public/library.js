@@ -12,6 +12,8 @@ const viewerCaption = document.querySelector("#viewer-caption");
 const scrubEl = document.querySelector("#scrub");
 const scrubTrack = document.querySelector("#scrub-track");
 const scrubLabel = document.querySelector("#scrub-label");
+const infoEl = document.querySelector("#viewer-info");
+const FOLD_KEY = "photo-library-folds";
 let scrubTimer = 0;
 let scrollLock = 0;
 let dragOrigin = null;
@@ -19,6 +21,7 @@ let blockScrubClick = false;
 let pendingMark = null;
 let scrubSeekTimer = 0;
 let loadGen = 0;
+let infoGen = 0;
 
 const state = {
   days: [],
@@ -28,6 +31,7 @@ const state = {
   month: "",
   day: "",
   q: "",
+  rating: "",
   loading: false,
   done: false,
   open: -1,
@@ -434,7 +438,12 @@ function renderMosaic(keepScroll) {
   mosaicEl.replaceChildren();
   if (!state.photos.length) {
     const empty = h("div", { class: "empty" });
-    empty.append(h("div", { text: state.q ? "没有符合搜索的照片。" : "还没有照片。点左侧「扫描全部磁盘」，只会收录正常照片。" }));
+    const emptyText = state.q
+      ? "没有符合搜索的照片。"
+      : state.rating
+        ? `还没有 ${state.rating} 星的照片。`
+        : "还没有照片。点左侧「扫描全部磁盘」，只会收录正常照片。";
+    empty.append(h("div", { text: emptyText }));
     mosaicEl.append(empty);
     stageEl.scrollTop = 0;
     return;
@@ -458,6 +467,7 @@ async function loadPhotos(reset) {
   if (state.month) params.set("month", state.month);
   if (state.day) params.set("day", state.day);
   if (state.q) params.set("q", state.q);
+  if (state.rating) params.set("rating", state.rating);
   let response;
   try {
     response = await fetch(`/api/library/photos?${params}`);
@@ -480,7 +490,9 @@ async function loadPhotos(reset) {
 }
 
 async function loadTree() {
-  const response = await fetch("/api/library/tree");
+  const params = new URLSearchParams();
+  if (state.rating) params.set("rating", state.rating);
+  const response = await fetch(`/api/library/tree?${params}`);
   const data = await response.json();
   state.days = data.days || [];
   renderTree();
@@ -513,6 +525,21 @@ async function refreshQuiet() {
   return data;
 }
 
+async function showPhotoInfo(photo) {
+  const gen = ++infoGen;
+  infoEl.hidden = false;
+  infoEl.replaceChildren(h("p", { class: "hint", text: "正在读取拍摄信息…" }));
+  const response = await fetch(`/api/library/info?path=${encodeURIComponent(photo.path)}`);
+  const data = await response.json().catch(() => ({}));
+  if (gen !== infoGen) return;
+  const list = h("dl");
+  for (const field of data.fields || []) {
+    list.append(h("dt", { text: field.label }), h("dd", { text: field.value }));
+  }
+  if (!data.fields?.length) list.append(h("p", { class: "hint", text: data.error || "没有读到拍摄信息" }));
+  infoEl.replaceChildren(list);
+}
+
 function openViewer(index) {
   const photo = state.photos[index];
   if (!photo) return;
@@ -521,11 +548,15 @@ function openViewer(index) {
   viewerImg.alt = photo.name;
   viewerImg.src = `/api/library/view?path=${encodeURIComponent(photo.path)}`;
   viewerCaption.textContent = `${dateText(photo)}  ${photo.name}`;
+  showPhotoInfo(photo);
 }
 
 function closeViewer() {
+  infoGen += 1;
   viewer.hidden = true;
   viewerImg.removeAttribute("src");
+  infoEl.hidden = true;
+  infoEl.replaceChildren();
   state.open = -1;
 }
 
@@ -567,7 +598,10 @@ function watchScan() {
   };
   source.addEventListener("done", (event) => {
     const summary = JSON.parse(event.data);
-    finish(`扫描完成，收录 ${summary.total || summary.files || 0} 张。`);
+    const parts = [`扫描完成，收录 ${summary.total || summary.files || 0} 张。`];
+    if (summary.added) parts.push(`新加入 ${summary.added} 张。`);
+    if (summary.removed) parts.push(`已去掉 ${summary.removed} 张不存在的照片。`);
+    finish(parts.join(""));
   });
   source.addEventListener("cancelled", () => finish("扫描已停止，已收录的照片仍会保留。"));
   source.addEventListener("failed", (event) => {
@@ -577,6 +611,50 @@ function watchScan() {
   source.addEventListener("idle", () => source.close());
 }
 
+function applyFolds() {
+  let saved = {};
+  try {
+    saved = JSON.parse(localStorage.getItem(FOLD_KEY) || "{}");
+  } catch {
+    saved = {};
+  }
+  for (const section of document.querySelectorAll(".fold")) {
+    const open = saved[section.dataset.fold] !== false;
+    section.classList.toggle("open", open);
+    section.querySelector(".fold-head").setAttribute("aria-expanded", open ? "true" : "false");
+  }
+}
+
+function toggleFold(section) {
+  const open = !section.classList.contains("open");
+  section.classList.toggle("open", open);
+  section.querySelector(".fold-head").setAttribute("aria-expanded", open ? "true" : "false");
+  let saved = {};
+  try {
+    saved = JSON.parse(localStorage.getItem(FOLD_KEY) || "{}");
+  } catch {
+    saved = {};
+  }
+  saved[section.dataset.fold] = open;
+  localStorage.setItem(FOLD_KEY, JSON.stringify(saved));
+}
+
+applyFolds();
+for (const section of document.querySelectorAll(".fold")) {
+  section.querySelector(".fold-head").addEventListener("click", () => toggleFold(section));
+}
+document.querySelector("#ratings").addEventListener("click", (event) => {
+  const button = event.target.closest("button");
+  if (!button) return;
+  const rating = button.dataset.rating;
+  state.rating = state.rating === rating ? "" : rating;
+  for (const item of document.querySelectorAll("#ratings button")) {
+    item.classList.toggle("on", item.dataset.rating === state.rating);
+  }
+  loadTree();
+  loadPhotos(true);
+  stageEl.scrollTop = 0;
+});
 document.querySelector("#nav-all").addEventListener("click", () => selectTime("", "", ""));
 scanBtn.addEventListener("click", async () => {
   scanBtn.disabled = true;

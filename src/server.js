@@ -10,6 +10,7 @@ import { pickFolders, recyclePaths, revealPath } from "./picker.js";
 import { renderPreviewJpeg } from "./preview.js";
 import { listDrives, pairedCameraPaths } from "./library-scan.js";
 import { libraryCount, libraryMeta, libraryPhoto, libraryTree, openLibrary, purgeScan, queryPhotos, removePhotos, setLibraryMeta, setRating, upsertPhotos } from "./library-db.js";
+import { describePhoto, readPhotoFacts } from "./photo-info.js";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, "..", "public");
 const libraryDbPath = process.env.LIBRARY_DB || path.join(here, "..", "data", "library.sqlite");
@@ -54,16 +55,21 @@ function finishLibrary(status, summary) {
   if (!job || job.settled) return;
   job.settled = true;
   if (status === "done") {
-    purgeScan(photosDb(), job.scanId);
+    const seen = libraryCount(photosDb());
+    const removed = purgeScan(photosDb(), job.scanId);
+    const total = libraryCount(photosDb());
+    const added = Math.max(0, seen - (job.beforeCount || 0));
     const saved = {
       finishedAt: Date.now(),
       files: summary?.files || 0,
       dirs: summary?.dirs || 0,
       softwareSkipped: summary?.softwareSkipped || 0,
       roots: job.roots,
+      added,
+      removed,
     };
     setLibraryMeta(photosDb(), "summary", JSON.stringify(saved));
-    emitLibrary("done", { ...saved, total: libraryCount(photosDb()) }, true);
+    emitLibrary("done", { ...saved, total }, true);
   } else if (status === "cancelled") {
     emitLibrary("cancelled", { total: libraryCount(photosDb()) }, true);
   } else {
@@ -87,10 +93,12 @@ function startLibraryScan() {
   const sab = new SharedArrayBuffer(4);
   const flag = new Int32Array(sab);
   const scanId = Date.now();
+  const beforeCount = libraryCount(photosDb());
   libraryJob = {
     worker: null,
     flag,
     scanId,
+    beforeCount,
     roots,
     listeners: new Set(),
     settled: false,
@@ -540,7 +548,7 @@ async function handle(req, res) {
     }
 
     if (req.method === "GET" && url.pathname === "/api/library/tree") {
-      sendJson(res, 200, { days: libraryTree(photosDb()) });
+      sendJson(res, 200, { days: libraryTree(photosDb(), { rating: url.searchParams.get("rating") }) });
       return;
     }
 
@@ -549,6 +557,7 @@ async function handle(req, res) {
         year: url.searchParams.get("year"),
         month: url.searchParams.get("month"),
         day: url.searchParams.get("day"),
+        rating: url.searchParams.get("rating"),
         q: url.searchParams.get("q"),
         offset: url.searchParams.get("offset"),
         limit: url.searchParams.get("limit"),
@@ -633,6 +642,17 @@ async function handle(req, res) {
         clearInterval(timer);
         libraryJob?.listeners.delete(res);
       });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/library/info") {
+      const photo = libraryPhoto(photosDb(), path.resolve(String(url.searchParams.get("path") || "")));
+      if (!photo) {
+        sendJson(res, 404, { error: "照片不在库里" });
+        return;
+      }
+      const facts = fs.existsSync(photo.path) ? readPhotoFacts(photo.path) : {};
+      sendJson(res, 200, { fields: describePhoto(photo, facts) });
       return;
     }
 

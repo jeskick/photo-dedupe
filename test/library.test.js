@@ -46,6 +46,9 @@ test("照片库按时间保存，混有其他文件的目录不进入", () => {
   setRating(db, kept.path, 4);
   upsertPhotos(db, found.map((file) => ({ ...file, name: "kept.jpg" })), 3);
   assert.equal(libraryPhoto(db, kept.path).rating, 4);
+  assert.equal(queryPhotos(db, { rating: 4 }).length, 1);
+  assert.equal(queryPhotos(db, { rating: 5 }).length, 0);
+  assert.equal(libraryTree(db, { rating: 4 })[0].count, 1);
   db.close();
 });
 

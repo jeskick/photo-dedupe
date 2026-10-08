@@ -79,7 +79,7 @@ export function upsertPhotos(db, photos, scanId) {
 }
 
 export function purgeScan(db, scanId) {
-  db.prepare("DELETE FROM photos WHERE scan_id != ?").run(scanId);
+  return db.prepare("DELETE FROM photos WHERE scan_id != ?").run(scanId).changes || 0;
 }
 
 export function setLibraryMeta(db, key, value) {
@@ -120,8 +120,19 @@ export function removePhotos(db, paths) {
   }
 }
 
-export function libraryTree(db) {
-  return db.prepare("SELECT year, month, day, COUNT(*) AS count FROM photos GROUP BY year, month, day ORDER BY year DESC, month DESC, day DESC").all();
+function ratingClause(filter, where, params) {
+  const rating = Number(filter.rating);
+  if (rating >= 1 && rating <= 5) {
+    where.push("rating = ?");
+    params.push(rating);
+  }
+}
+
+export function libraryTree(db, filter = {}) {
+  const where = [];
+  const params = [];
+  ratingClause(filter, where, params);
+  return db.prepare(`SELECT year, month, day, COUNT(*) AS count FROM photos ${where.length ? `WHERE ${where.join(" AND ")}` : ""} GROUP BY year, month, day ORDER BY year DESC, month DESC, day DESC`).all(...params);
 }
 
 export function queryPhotos(db, filter = {}) {
@@ -139,6 +150,7 @@ export function queryPhotos(db, filter = {}) {
     where.push("day = ?");
     params.push(Number(filter.day));
   }
+  ratingClause(filter, where, params);
   const text = String(filter.q || "").trim().replace(/[%_]/g, "");
   if (text) {
     where.push("name LIKE ?");

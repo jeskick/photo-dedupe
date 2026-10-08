@@ -14,14 +14,40 @@
       <span class="ico" aria-hidden="true"></span>
       照片
     </button>
-    <div class="nav-label">时间</div>
-    <div id="tree" class="tree"></div>
-    <div class="nav-foot">
-      <p id="count">还没有照片</p>
-      <button id="scan" type="button">扫描全部磁盘</button>
-      <button id="stop" class="quiet" type="button" hidden>停止</button>
-      <p id="scan-status" class="hint"></p>
-    </div>
+    <section class="fold grow open" data-fold="time">
+      <button class="fold-head" type="button" aria-expanded="true">
+        <span>时间</span>
+        <span class="chev" aria-hidden="true"></span>
+      </button>
+      <div id="tree" class="tree fold-body"></div>
+    </section>
+    <section class="fold open" data-fold="rating">
+      <button class="fold-head" type="button" aria-expanded="true">
+        <span>星级</span>
+        <span class="chev" aria-hidden="true"></span>
+      </button>
+      <div class="fold-body">
+        <div id="ratings" class="ratings" role="group" aria-label="按星级查看">
+          <button type="button" data-rating="1">1星</button>
+          <button type="button" data-rating="2">2星</button>
+          <button type="button" data-rating="3">3星</button>
+          <button type="button" data-rating="4">4星</button>
+          <button type="button" data-rating="5">5星</button>
+        </div>
+      </div>
+    </section>
+    <section class="fold open" data-fold="scan">
+      <button class="fold-head" type="button" aria-expanded="true">
+        <span>扫描</span>
+        <span class="chev" aria-hidden="true"></span>
+      </button>
+      <div class="fold-body nav-foot">
+        <p id="count">还没有照片</p>
+        <button id="scan" type="button">扫描全部磁盘</button>
+        <button id="stop" class="quiet" type="button" hidden>停止</button>
+        <p id="scan-status" class="hint"></p>
+      </div>
+    </section>
   </aside>
   <div class="main">
     <header class="top">
@@ -42,6 +68,7 @@
       <button id="viewer-open" class="quiet" type="button">打开所在文件夹</button>
     </div>
     <div class="viewer-stage">
+      <aside id="viewer-info" class="viewer-info" hidden></aside>
       <button id="viewer-prev" class="quiet edge" type="button" aria-label="上一张">‹</button>
       <img id="viewer-img" alt="">
       <button id="viewer-next" class="quiet edge" type="button" aria-label="下一张">›</button>
