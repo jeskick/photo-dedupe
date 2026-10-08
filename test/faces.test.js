@@ -41,6 +41,11 @@ test("同一段时间里的背影会跟着唯一的人，两个人都在时不�
   const linked = linkBackViews(shots);
   assert.deepEqual(linked.map((item) => item.path), ["back"]);
   assert.equal(linked[0].personId, 1);
+  const shoes = [
+    { path: "face", captureMs: 0, personIds: [1], body: true },
+    ...Array.from({ length: 6 }, (_, index) => ({ path: `shoe-${index}`, captureMs: 1000 + index, personIds: [], body: true })),
+  ];
+  assert.deepEqual(linkBackViews(shoes), []);
 });
 
 test("标记名字后能按人和场景筛选，删照片会清掉标记", () => {

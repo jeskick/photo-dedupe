@@ -462,6 +462,22 @@ function applyBackViews(db) {
   return linked.length;
 }
 
+export function relinkBackViews(db) {
+  db.exec("BEGIN");
+  try {
+    db.exec(`DELETE FROM appearances WHERE NOT EXISTS (
+      SELECT 1 FROM faces
+      WHERE faces.path = appearances.path AND faces.person_id = appearances.person_id
+    )`);
+    const linked = applyBackViews(db);
+    db.exec("COMMIT");
+    return linked;
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
 export function rebuildPeople(db) {
   const faces = db.prepare("SELECT id, path, name, embedding FROM faces").all().map((row) => ({
     id: row.id,

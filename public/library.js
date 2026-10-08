@@ -40,6 +40,7 @@ const state = {
   label: "",
   person: "",
   personId: "",
+  showOthers: false,
   marks: { labels: { person: 0, animal: 0, landscape: 0 }, people: [] },
   settings: { excludeDirs: [], minEdgePhoto: 0, minEdgeVideo: 0 },
   loading: false,
@@ -869,27 +870,40 @@ function renderMarks() {
   const names = document.querySelector("#names");
   names.replaceChildren();
   const people = state.marks.people || [];
-  const visible = people.some((item) => item.count >= 8) ? people.filter((item) => item.count >= 8) : people;
-  const hidden = people.length - visible.length;
-  const peopleNote = document.querySelector("#people-note");
-  if (peopleNote) {
-    peopleNote.textContent = hidden
-      ? `下面每一行是不同的人，点一行只看这一个人。还有 ${hidden} 组只有几张，先不铺开。`
-      : "下面每一行是不同的人。点一行只看这一个人，再起名。";
-  }
+  const crowded = people.some((item) => item.count >= 8);
   let unnamed = 0;
-  for (const item of visible) {
-    const title = item.name || `人物 ${++unnamed}`;
-    const button = h("button", { type: "button", text: `${title} · ${item.count}` });
-    button.classList.toggle("on", String(state.personId) === String(item.id));
+  const titled = people.map((item) => ({ item, title: item.name || `人物 ${++unnamed}` }));
+  const main = crowded ? titled.filter((row) => row.item.count >= 8) : titled;
+  const rest = crowded ? titled.filter((row) => row.item.count < 8) : [];
+  const peopleNote = document.querySelector("#people-note");
+  if (peopleNote) peopleNote.textContent = "下面每一行是不同的人，点一行只看这一个人。";
+  const addPerson = (row) => {
+    const button = h("button", { type: "button", text: `${row.title} · ${row.item.count}` });
+    button.classList.toggle("on", String(state.personId) === String(row.item.id));
     button.addEventListener("click", () => {
-      state.personId = String(state.personId) === String(item.id) ? "" : String(item.id);
+      state.personId = String(state.personId) === String(row.item.id) ? "" : String(row.item.id);
       state.person = "";
       state.label = "";
       if (state.personId && state.kind === "video") state.kind = "photo";
       applyMarkFilter();
     });
     names.append(button);
+  };
+  for (const row of main) addPerson(row);
+  if (rest.length) {
+    const toggle = h("button", {
+      type: "button",
+      text: `${state.showOthers ? "收起其他" : "其他"} · ${rest.length}`,
+    });
+    toggle.addEventListener("click", () => {
+      state.showOthers = !state.showOthers;
+      renderMarks();
+    });
+    names.append(toggle);
+    const shown = state.showOthers
+      ? rest
+      : rest.filter((row) => String(row.item.id) === String(state.personId));
+    for (const row of shown) addPerson(row);
   }
   renderNameBox();
 }
@@ -1166,6 +1180,10 @@ window.addEventListener("resize", () => {
 });
 const viewerStars = document.querySelector("#viewer-stars");
 document.querySelector("#viewer-close").addEventListener("click", closeViewer);
+viewer.addEventListener("click", (event) => {
+  if (event.target.closest("#viewer-img, #viewer-video, button, input, textarea, #viewer-info, #viewer-caption")) return;
+  closeViewer();
+});
 viewerStars.addEventListener("click", (event) => {
   const star = event.target.closest(".star");
   const photo = state.photos[state.open];

@@ -255,6 +255,8 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .names button { text-align: left; background: transparent; color: #d7dadf; border: 0; border-radius: 6px; padding: 4px 8px; cursor: pointer; }
 .names button.active, .ratings button.active { background: rgba(255,255,255,0.1); }
 .names button:hover { background: rgba(255,255,255,0.06); }
+.names button.on,
+.names button.on:hover { background: rgba(138, 180, 248, 0.28); color: #fff; }
 .face-names { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .face-names input {
   width: 100%;

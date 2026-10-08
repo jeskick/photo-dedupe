@@ -167,6 +167,8 @@ export function linkBackViews(shots, windowMs = 4 * 60 * 60 * 1000) {
     if (!ranked.length) continue;
     const [personId, count] = ranked[0];
     const total = ranked.reduce((sum, item) => sum + item[1], 0);
+    const faceless = shots.filter((item) => item.body && !item.personIds?.length && Math.abs(item.captureMs - shot.captureMs) <= windowMs).length;
+    if (faceless > count) continue;
     if (ranked.length === 1 || (count >= 2 && count / total >= 0.8)) linked.push({ path: shot.path, personId });
   }
   return linked;
