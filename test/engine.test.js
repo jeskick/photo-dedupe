@@ -215,3 +215,27 @@ save(backup, "IMG_0001.jpg", 40)
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("排除目录里的副本不参与查重", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "photo-dedupe-exclude-"));
+  const same = buildJpeg("2020:01:02 03:04:05", "00", "same-payload");
+  write(path.join(dir, "keep", "IMG_0001.jpg"), same);
+  write(path.join(dir, "keep", "IMG_0001 (1).jpg"), same);
+  write(path.join(dir, "skip", "IMG_0001.jpg"), same);
+  write(path.join(dir, "skip", "IMG_0001 (1).jpg"), same);
+  try {
+    const result = await runScan({
+      roots: [dir],
+      extensions: allKinds,
+      nameMode: "normalized",
+      toleranceSec: 0,
+      excludeDirs: [path.join(dir, "skip")],
+      minEdgePhoto: 480,
+    });
+    const paths = result.found.flatMap((group) => group.files.map((file) => file.path));
+    assert.equal(paths.some((item) => item.includes(`${path.sep}skip${path.sep}`)), false);
+    assert.equal(result.found[0].files.length, 2);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

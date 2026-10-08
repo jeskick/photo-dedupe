@@ -5,6 +5,8 @@ import { pythonExecutable } from "./phash.js";
 
 const script = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "python", "preview_jpeg.py");
 const cache = new Map();
+const MAX_CACHE_BYTES = 64 * 1024 * 1024;
+let cacheBytes = 0;
 let active = 0;
 const waiting = [];
 
@@ -26,9 +28,16 @@ function releaseSlot() {
 }
 
 function remember(key, buffer) {
+  const previous = cache.get(key);
+  if (previous) {
+    cache.delete(key);
+    cacheBytes -= previous.length;
+  }
   cache.set(key, buffer);
-  if (cache.size > 48) {
+  cacheBytes += buffer.length;
+  while (cache.size > 1 && cacheBytes > MAX_CACHE_BYTES) {
     const oldest = cache.keys().next().value;
+    cacheBytes -= cache.get(oldest).length;
     cache.delete(oldest);
   }
 }
@@ -37,7 +46,11 @@ export function renderPreviewJpeg(filePath, stamp, edge = 1600) {
   const size = Math.max(64, Math.min(1600, Number(edge) || 1600));
   const key = `${filePath}\0${stamp || ""}\0${size}`;
   const cached = cache.get(key);
-  if (cached) return Promise.resolve(cached);
+  if (cached) {
+    cache.delete(key);
+    cache.set(key, cached);
+    return Promise.resolve(cached);
+  }
   const python = pythonExecutable();
   return takeSlot().then(() => new Promise((resolve, reject) => {
     const child = spawn(python, [script, filePath, String(size)], { windowsHide: true });

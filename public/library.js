@@ -711,7 +711,7 @@ function applyFolds() {
     saved = {};
   }
   for (const section of document.querySelectorAll(".fold")) {
-    const open = saved[section.dataset.fold] !== false;
+    const open = section.dataset.fold === "scan" ? saved.scan === true : saved[section.dataset.fold] !== false;
     section.classList.toggle("open", open);
     section.querySelector(".fold-head").setAttribute("aria-expanded", open ? "true" : "false");
   }

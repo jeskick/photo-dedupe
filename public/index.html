@@ -29,6 +29,21 @@
         <label class="check"><input id="kind-video" type="checkbox" checked>视频</label>
       </div>
 
+      <h2>跳过</h2>
+      <label class="scan-line">长边小于
+        <select id="min-edge" aria-label="小于多少像素不比对">
+          <option value="0">不限制</option>
+          <option value="120">120</option>
+          <option value="240">240</option>
+          <option value="360">360</option>
+          <option value="480">480</option>
+        </select>
+        不比对
+      </label>
+      <ul id="exclude-list" class="exclude"></ul>
+      <button id="exclude-add" type="button" class="ghost">添加不扫描的目录</button>
+      <p class="note">和照片库共用。读不到尺寸的仍会比对。</p>
+
       <h2>比对</h2>
       <label class="check"><input name="name-mode" type="radio" value="normalized" checked>忽略副本、(1)、copy</label>
       <label class="check"><input name="name-mode" type="radio" value="exact">文件名完全相同</label>

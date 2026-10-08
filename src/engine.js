@@ -3,7 +3,9 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { isVideoExt } from "./extensions.js";
+import { isExcludedDir, passesMinEdge } from "./library-scan.js";
 import { readCapture } from "./metadata.js";
+import { probeMedia } from "./photo-info.js";
 import { clusterByCapture, markOrigins, nameKey, orderForKeep, pregroupKey, withoutCameraPairs } from "./match.js";
 import { phashFiles } from "./phash.js";
 import { pruneRoots } from "./roots.js";
@@ -236,8 +238,16 @@ export async function runScan(options) {
   const emit = () => onProgress?.({ ...progress, nestedRoots: [...nested], invalidRoots: [...invalid] });
   emit();
 
+  const excludeDirs = options.excludeDirs || [];
+  const minEdgePhoto = Number(options.minEdgePhoto) || 0;
+  const minEdgeVideo = Number(options.minEdgeVideo) || 0;
   const media = [];
   const walked = walkMedia(roots, extensions, isCancelled, (file) => {
+    const minEdge = isVideoExt(file.ext) ? minEdgeVideo : minEdgePhoto;
+    if (minEdge) {
+      const probe = probeMedia(file.path, file.ext);
+      if (!passesMinEdge(probe.width, probe.height, minEdge)) return;
+    }
     media.push(file);
     progress.files = media.length;
     progress.current = file.path;
@@ -245,9 +255,11 @@ export async function runScan(options) {
     progress.dirs = partial.dirs;
     progress.files = partial.files;
     emit();
+  }, {
+    skipDir: (dir) => isExcludedDir(dir, excludeDirs),
   });
   progress.dirs = walked.dirs;
-  progress.files = walked.files;
+  progress.files = media.length;
   if (walked.cancelled) throw new ScanCancelled();
 
   const pregroups = groupBy(media, (file) => pregroupKey(file, nameMode));

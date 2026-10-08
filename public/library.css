@@ -69,14 +69,20 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .fold-head {
   display: flex;
   align-items: center;
+  gap: 8px;
   width: 100%;
   border: 0;
+  border-radius: 8px;
   background: transparent;
-  color: var(--muted);
-  font-size: 12px;
+  color: #d2d5d9;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
   text-align: left;
-  padding: 12px 8px 6px 16px;
+  padding: 7px 10px;
 }
+.fold-head:hover { background: rgba(255, 255, 255, 0.05); }
+.fold + .fold { margin-top: 2px; }
 .chev {
   margin-left: auto;
   width: 0;
@@ -242,6 +248,8 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   border: 0;
   padding: 0;
   background: #303134;
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto var(--row-h, 180px);
   overflow: hidden;
   height: var(--row-h, 180px);
 }

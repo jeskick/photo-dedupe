@@ -305,6 +305,7 @@ function startJob(body) {
     if (existing.status === "running" || id === job.id) continue;
     if (jobs.size > 3) jobs.delete(id);
   }
+  const settings = librarySettings(photosDb());
   const worker = new Worker(new URL("./worker.js", import.meta.url), {
     workerData: {
       roots: body.roots,
@@ -314,6 +315,9 @@ function startJob(body) {
       matchWithoutTime: body.matchWithoutTime !== false,
       similar: body.similar === true,
       similarDistance: Math.min(12, Math.max(0, Number.isFinite(Number(body.similarDistance)) ? Number(body.similarDistance) : 4)),
+      excludeDirs: settings.excludeDirs,
+      minEdgePhoto: settings.minEdgePhoto,
+      minEdgeVideo: settings.minEdgeVideo,
       sab,
     },
   });
@@ -751,7 +755,7 @@ async function handle(req, res) {
         res.writeHead(200, {
           "Content-Type": "image/jpeg",
           "Content-Length": jpeg.length,
-          "Cache-Control": "private, max-age=86400",
+          "Cache-Control": edge > 480 ? "private, max-age=120" : "private, max-age=3600",
           "X-Content-Type-Options": "nosniff",
         });
         res.end(jpeg);

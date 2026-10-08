@@ -677,6 +677,54 @@ if (saved.withoutTime != null) document.querySelector("#without-time").checked =
 if (saved.similar != null) document.querySelector("#similar").checked = saved.similar !== false;
 if (saved.similarDistance != null) document.querySelector("#similar-distance").value = saved.similarDistance;
 if (saved.sidecars != null) document.querySelector("#sidecars").checked = saved.sidecars !== false;
+
+let shared = { excludeDirs: [], minEdgePhoto: 0, minEdgeVideo: 0 };
+const excludeList = document.querySelector("#exclude-list");
+const minEdgeEl = document.querySelector("#min-edge");
+
+function renderShared() {
+  minEdgeEl.value = String(shared.minEdgePhoto || 0);
+  excludeList.replaceChildren();
+  for (const dir of shared.excludeDirs || []) {
+    const item = h("li");
+    const remove = h("button", { type: "button", text: "移除" });
+    remove.addEventListener("click", () => saveShared({ excludeDirs: shared.excludeDirs.filter((entry) => entry !== dir) }));
+    item.append(h("span", { text: dir, title: dir }), remove);
+    excludeList.append(item);
+  }
+}
+
+async function saveShared(patch) {
+  shared = await postJson("/api/library/settings", {
+    excludeDirs: patch.excludeDirs || shared.excludeDirs,
+    minEdgePhoto: patch.minEdgePhoto ?? shared.minEdgePhoto,
+    minEdgeVideo: patch.minEdgeVideo ?? shared.minEdgeVideo,
+  });
+  renderShared();
+}
+
+async function loadShared() {
+  const response = await fetch("/api/library/settings");
+  shared = await response.json();
+  renderShared();
+}
+
+minEdgeEl.addEventListener("change", () => {
+  const value = Number(minEdgeEl.value) || 0;
+  saveShared({ minEdgePhoto: value, minEdgeVideo: value }).catch((error) => setStatus(error.message, true));
+});
+document.querySelector("#exclude-add").addEventListener("click", async () => {
+  try {
+    const data = await postJson("/api/pick", { mode: "one" });
+    const picked = (data.paths || []).filter(Boolean);
+    if (!picked.length) return;
+    await saveShared({ excludeDirs: [...new Set([...shared.excludeDirs, ...picked])] });
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+});
+loadShared().catch((error) => setStatus(error.message, true));
+
 renderRoots();
 renderAll();
 setStatus("添加目录后开始扫描。带「副本」或「(1)」的文件名会和原文件名认成同一张。");

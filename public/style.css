@@ -67,7 +67,14 @@ main {
   background: #fffdf8;
 }
 .work { display: flex; flex-direction: column; overflow: hidden; }
-.side h2 { margin: 0.75rem 0 0.3rem; }
+.side h2 { margin: 0.85rem 0 0.35rem; letter-spacing: 0.08em; font-size: 0.78rem; font-weight: 650; color: var(--muted); }
+.scan-line { display: flex; align-items: center; gap: 0.35rem; margin: 0.2rem 0 0.45rem; color: var(--muted); font-size: 0.86rem; }
+.scan-line select { border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 0.15rem 0.35rem; }
+.exclude { list-style: none; margin: 0 0 0.35rem; padding: 0; }
+.exclude li { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.25rem; font-size: 0.82rem; }
+.exclude span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.exclude button { background: transparent; color: var(--pine); padding: 0; }
+.exclude button:hover { background: transparent; }
 .side h2:first-child { margin-top: 0.85rem; }
 a.library-link {
   display: flex;
