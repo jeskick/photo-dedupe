@@ -8,7 +8,7 @@ const python = pythonExecutable();
 const script = fileURLToPath(new URL("../python/recognize.py", import.meta.url));
 const child = spawn(python, [script], {
   windowsHide: true,
-  env: { ...process.env, PYTHONUNBUFFERED: "1", TQDM_DISABLE: "1" },
+  env: { ...process.env, PYTHONUNBUFFERED: "1", PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8", TQDM_DISABLE: "1" },
 });
 let stdout = "";
 let stderr = "";

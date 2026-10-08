@@ -45,6 +45,15 @@ if errorlevel 1 (
   )
 )
 
+if not exist "%SystemRoot%\System32\vcruntime140_1.dll" (
+  echo 人物识别需要较新的 Visual C++ 运行库，正在安装...
+  winget install --id Microsoft.VCRedist.2015+.x64 -e --accept-package-agreements --accept-source-agreements
+  if not exist "%SystemRoot%\System32\vcruntime140_1.dll" (
+    echo 运行库还没装上。请安装 https://aka.ms/vs/17/release/vc_redist.x64.exe 后再识别人物。
+    echo 没装上时，浏览和查重仍然可用。
+  )
+)
+
 ".venv\Scripts\python.exe" -c "import insightface, onnxruntime, cv2" >nul 2>nul
 if errorlevel 1 (
   echo 正在安装人物识别组件，需要联网。装不上也不影响浏览和查重。
