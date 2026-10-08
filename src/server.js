@@ -1,5 +1,6 @@
 import http from "node:http";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { Worker } from "node:worker_threads";
@@ -912,6 +913,20 @@ function openBrowser(url) {
   spawn("cmd", ["/c", "start", "", url], { detached: true, stdio: "ignore", windowsHide: true }).unref();
 }
 
+function lanAddresses() {
+  const addresses = [];
+  for (const entries of Object.values(os.networkInterfaces())) {
+    for (const entry of entries || []) {
+      const family = entry.family;
+      const ip4 = family === "IPv4" || family === 4;
+      if (!ip4 || entry.internal) continue;
+      if (String(entry.address).startsWith("169.254.")) continue;
+      addresses.push(entry.address);
+    }
+  }
+  return addresses;
+}
+
 function start(port) {
   const server = http.createServer((req, res) => {
     handle(req, res).catch((error) => {
@@ -923,18 +938,20 @@ function start(port) {
   server.on("error", (error) => {
     if (error.code === "EADDRINUSE" && current < base + 20) {
       current += 1;
-      server.listen(current, "127.0.0.1");
+      server.listen(current, "0.0.0.0");
       return;
     }
     console.error(error.message || error);
     process.exit(1);
   });
   server.on("listening", () => {
-    const url = `http://127.0.0.1:${current}/`;
-    console.log(`相片视频查重已启动 ${url}`);
-    if (!process.env.NO_OPEN) openBrowser(url);
+    const local = `http://127.0.0.1:${current}/`;
+    const remote = lanAddresses().map((address) => `http://${address}:${current}/`);
+    console.log(`相片视频查重已启动 ${local}`);
+    if (remote.length) console.log(`局域网可访问 ${remote.join("  ")}`);
+    if (!process.env.NO_OPEN) openBrowser(local);
   });
-  server.listen(current, "127.0.0.1");
+  server.listen(current, "0.0.0.0");
 }
 
 const isMain = process.argv[1]
