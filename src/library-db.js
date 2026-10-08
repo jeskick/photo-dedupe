@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { bestName, bufferFromEmbedding, embeddingFromBuffer, facesToRename } from "./faces.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS photos (
@@ -48,6 +49,21 @@ export function openLibrary(dbPath) {
     db.exec("ALTER TABLE photos ADD COLUMN height INTEGER NOT NULL DEFAULT 0");
   }
   db.exec("CREATE INDEX IF NOT EXISTS photos_kind ON photos(kind, capture_ms DESC)");
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS faces (
+      id INTEGER PRIMARY KEY,
+      path TEXT NOT NULL,
+      embedding BLOB NOT NULL,
+      name TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS faces_path ON faces(path);
+    CREATE INDEX IF NOT EXISTS faces_name ON faces(name);
+    CREATE TABLE IF NOT EXISTS labels (
+      path TEXT NOT NULL,
+      label TEXT NOT NULL,
+      PRIMARY KEY (path, label)
+    );
+  `);
   return db;
 }
 
@@ -100,9 +116,16 @@ export function upsertPhotos(db, photos, scanId) {
   }
 }
 
+function dropOrphanMarks(db) {
+  db.exec("DELETE FROM faces WHERE path NOT IN (SELECT path FROM photos)");
+  db.exec("DELETE FROM labels WHERE path NOT IN (SELECT path FROM photos)");
+}
+
 export function purgeScan(db, scanId, kind = "photo") {
   const media = kind === "video" ? "video" : "photo";
-  return db.prepare("DELETE FROM photos WHERE kind = ? AND scan_id != ?").run(media, scanId).changes || 0;
+  const changes = db.prepare("DELETE FROM photos WHERE kind = ? AND scan_id != ?").run(media, scanId).changes || 0;
+  if (changes) dropOrphanMarks(db);
+  return changes;
 }
 
 export function setLibraryMeta(db, key, value) {
@@ -177,6 +200,7 @@ export function removePhotos(db, paths) {
   try {
     for (const filePath of paths) stmt.run(filePath);
     db.exec("COMMIT");
+    dropOrphanMarks(db);
   } catch (error) {
     db.exec("ROLLBACK");
     throw error;
@@ -196,6 +220,15 @@ function ratingClause(filter, where, params) {
   if (filter.origin === "camera" || filter.origin === "phone") {
     where.push("origin = ?");
     params.push(filter.origin);
+  }
+  if (filter.label === "person" || filter.label === "animal" || filter.label === "landscape") {
+    where.push("path IN (SELECT path FROM labels WHERE label = ?)");
+    params.push(filter.label);
+  }
+  const person = String(filter.person || "").trim();
+  if (person) {
+    where.push("path IN (SELECT path FROM faces WHERE name = ?)");
+    params.push(person);
   }
 }
 
@@ -238,4 +271,86 @@ export function queryPhotos(db, filter = {}) {
     LIMIT ? OFFSET ?
   `;
   return db.prepare(sql).all(...params);
+}
+
+const SCENE = new Set(["person", "animal", "landscape"]);
+
+export function namedFaces(db) {
+  return db.prepare("SELECT path, name, embedding FROM faces WHERE name != ''").all().map((row) => ({
+    path: row.path,
+    name: row.name,
+    embedding: embeddingFromBuffer(row.embedding),
+  }));
+}
+
+export function libraryPhotoPaths(db) {
+  return db.prepare("SELECT path FROM photos WHERE kind = 'photo' ORDER BY capture_ms DESC").all().map((row) => row.path);
+}
+
+export function saveRecognition(db, filePath, embeddings, labels, named) {
+  const cleanLabels = [...new Set((labels || []).filter((item) => SCENE.has(item)))];
+  const faces = (embeddings || []).map((item) => {
+    const values = Float32Array.from(item);
+    return { values, name: bestName(values, named) };
+  });
+  if (faces.length && !cleanLabels.includes("person")) cleanLabels.push("person");
+  const pool = (named || []).filter((item) => item.path !== filePath);
+  db.exec("BEGIN");
+  try {
+    db.prepare("DELETE FROM faces WHERE path = ?").run(filePath);
+    db.prepare("DELETE FROM labels WHERE path = ?").run(filePath);
+    const insertFace = db.prepare("INSERT INTO faces (path, embedding, name) VALUES (?, ?, ?)");
+    for (const face of faces) {
+      insertFace.run(filePath, bufferFromEmbedding(face.values), face.name);
+      if (face.name) pool.push({ path: filePath, name: face.name, embedding: face.values });
+    }
+    const insertLabel = db.prepare("INSERT OR IGNORE INTO labels (path, label) VALUES (?, ?)");
+    for (const label of cleanLabels) insertLabel.run(filePath, label);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+  if (named) {
+    named.splice(0, named.length, ...pool);
+  }
+  return { faces: faces.length, labels: cleanLabels };
+}
+
+export function photoFaces(db, filePath) {
+  return db.prepare("SELECT id, name FROM faces WHERE path = ? ORDER BY id").all(filePath);
+}
+
+export function libraryMarks(db) {
+  const counts = Object.fromEntries(db.prepare("SELECT label, COUNT(*) AS count FROM labels GROUP BY label").all().map((row) => [row.label, row.count]));
+  return {
+    labels: {
+      person: counts.person || 0,
+      animal: counts.animal || 0,
+      landscape: counts.landscape || 0,
+    },
+    names: db.prepare("SELECT name, COUNT(DISTINCT path) AS count FROM faces WHERE name != '' GROUP BY name ORDER BY count DESC, name COLLATE NOCASE").all(),
+  };
+}
+
+export function renameFace(db, faceId, rawName) {
+  const name = String(rawName || "").trim().slice(0, 40);
+  const row = db.prepare("SELECT id, embedding FROM faces WHERE id = ?").get(Number(faceId));
+  if (!row) return null;
+  const target = { id: row.id, embedding: embeddingFromBuffer(row.embedding) };
+  const faces = db.prepare("SELECT id, embedding FROM faces").all().map((item) => ({
+    id: item.id,
+    embedding: embeddingFromBuffer(item.embedding),
+  }));
+  const updates = facesToRename(target, faces, name);
+  const stmt = db.prepare("UPDATE faces SET name = ? WHERE id = ?");
+  db.exec("BEGIN");
+  try {
+    for (const update of updates) stmt.run(update.name, update.id);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+  return { name, count: updates.length };
 }

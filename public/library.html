@@ -32,6 +32,23 @@
         </div>
       </div>
     </section>
+    <section class="fold open" data-fold="marks">
+      <button class="fold-head" type="button" aria-expanded="true">
+        <span>标记</span>
+        <span class="chev" aria-hidden="true"></span>
+      </button>
+      <div class="fold-body">
+        <div id="scenes" class="ratings" role="group" aria-label="按识别结果查看">
+          <button type="button" data-label="person">人物</button>
+          <button type="button" data-label="animal">动物</button>
+          <button type="button" data-label="landscape">风景</button>
+        </div>
+        <div id="names" class="names"></div>
+        <p class="hint">第一次识别会下载本机模型，只在这台电脑上跑，不会上传照片。只识别照片。</p>
+        <button id="recognize" type="button">识别人物和场景</button>
+        <button id="recognize-stop" type="button" hidden>停止识别</button>
+      </div>
+    </section>
     <section class="fold open" data-fold="rating">
       <button class="fold-head" type="button" aria-expanded="true">
         <span>星级</span>

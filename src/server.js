@@ -9,7 +9,7 @@ import { applyDeletions } from "./delete.js";
 import { pickFolders, recyclePaths, revealPath } from "./picker.js";
 import { renderPreviewJpeg } from "./preview.js";
 import { listDrives, pairedCameraPaths } from "./library-scan.js";
-import { libraryCount, libraryMeta, libraryPhoto, librarySettings, libraryTree, openLibrary, purgeScan, queryPhotos, removePhotos, saveLibrarySettings, setLibraryMeta, setRating, upsertPhotos } from "./library-db.js";
+import { libraryCount, libraryMarks, libraryMeta, libraryPhoto, libraryPhotoPaths, librarySettings, libraryTree, namedFaces, openLibrary, photoFaces, purgeScan, queryPhotos, removePhotos, renameFace, saveLibrarySettings, saveRecognition, setLibraryMeta, setRating, upsertPhotos } from "./library-db.js";
 import { describePhoto, readPhotoFacts } from "./photo-info.js";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, "..", "public");
@@ -17,6 +17,8 @@ const libraryDbPath = process.env.LIBRARY_DB || path.join(here, "..", "data", "l
 const jobs = new Map();
 let libraryDb = null;
 let libraryJob = null;
+let recognizeJob = null;
+let recognizeNote = "";
 
 function photosDb() {
   if (!libraryDb) libraryDb = openLibrary(libraryDbPath);
@@ -38,6 +40,9 @@ function libraryState() {
     videos: libraryCount(db, "video"),
     scanning: Boolean(libraryJob),
     progress: libraryJob?.progress || null,
+    recognizing: Boolean(recognizeJob),
+    recognize: recognizeJob?.progress || null,
+    recognizeNote,
     summary,
   };
 }
@@ -83,7 +88,7 @@ function finishLibrary(status, summary) {
 
 function startLibraryScan(kind) {
   const media = kind === "video" ? "video" : "photo";
-  if (runningJob() || libraryJob) {
+  if (runningJob() || libraryJob || recognizeJob) {
     const error = new Error("已有扫描在进行，请先停止或等待结束");
     error.status = 409;
     throw error;
@@ -138,6 +143,56 @@ function startLibraryScan(kind) {
   });
   worker.on("error", (error) => finishLibrary("failed", { error: error.message || "扫描失败" }));
   return { roots, scanId };
+}
+
+function startRecognize() {
+  if (runningJob() || libraryJob || recognizeJob) {
+    const error = new Error("已有扫描在进行，请先停止或等待结束");
+    error.status = 409;
+    throw error;
+  }
+  const paths = libraryPhotoPaths(photosDb());
+  if (!paths.length) {
+    const error = new Error("照片库还是空的，先扫描再识别");
+    error.status = 400;
+    throw error;
+  }
+  const sab = new SharedArrayBuffer(4);
+  const named = namedFaces(photosDb());
+  recognizeNote = "";
+  recognizeJob = {
+    flag: new Int32Array(sab),
+    worker: null,
+    named,
+    progress: { phase: "正在识别人物和场景", done: 0, total: paths.length },
+  };
+  const worker = new Worker(new URL("./recognize-worker.js", import.meta.url), {
+    workerData: { paths, sab },
+  });
+  recognizeJob.worker = worker;
+  worker.on("message", (message) => {
+    if (!recognizeJob || recognizeJob.worker !== worker) return;
+    if (message.type === "item") {
+      const item = message.item || {};
+      if (item.path && !item.error) {
+        saveRecognition(photosDb(), item.path, item.faces || [], item.labels || [], recognizeJob.named);
+      }
+      recognizeJob.progress = {
+        phase: "正在识别人物和场景",
+        done: recognizeJob.progress.done + 1,
+        total: recognizeJob.progress.total,
+      };
+      return;
+    }
+    if (message.type === "failed") recognizeNote = message.message || "人物识别失败";
+    if (message.type === "done" || message.type === "cancelled" || message.type === "failed") {
+      recognizeJob = null;
+    }
+  });
+  worker.on("error", () => {
+    recognizeJob = null;
+  });
+  return { total: paths.length };
 }
 
 const TYPES = {
@@ -263,7 +318,7 @@ function cancelJob(job) {
 }
 
 function startJob(body) {
-  const running = Boolean(runningJob()) || Boolean(libraryJob);
+  const running = Boolean(runningJob()) || Boolean(libraryJob) || Boolean(recognizeJob);
   if (running) {
     const error = new Error("已有扫描在进行，请先停止或等待结束");
     error.status = 409;
@@ -607,8 +662,10 @@ async function handle(req, res) {
       sendJson(res, 200, {
         days: libraryTree(photosDb(), {
           rating: url.searchParams.get("rating"),
-          kind: url.searchParams.get("kind"),
-          origin: url.searchParams.get("origin"),
+        kind: url.searchParams.get("kind"),
+        origin: url.searchParams.get("origin"),
+        label: url.searchParams.get("label"),
+        person: url.searchParams.get("person"),
         }),
       });
       return;
@@ -622,6 +679,8 @@ async function handle(req, res) {
         rating: url.searchParams.get("rating"),
         kind: url.searchParams.get("kind"),
         origin: url.searchParams.get("origin"),
+        label: url.searchParams.get("label"),
+        person: url.searchParams.get("person"),
         q: url.searchParams.get("q"),
         offset: url.searchParams.get("offset"),
         limit: url.searchParams.get("limit"),
@@ -645,6 +704,34 @@ async function handle(req, res) {
       const body = await readBody(req);
       const started = startLibraryScan(body.kind);
       sendJson(res, 200, started);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/library/marks") {
+      sendJson(res, 200, libraryMarks(photosDb()));
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/library/recognize") {
+      const started = startRecognize();
+      sendJson(res, 200, started);
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/library/recognize/cancel") {
+      if (recognizeJob) Atomics.store(recognizeJob.flag, 0, 1);
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/library/face") {
+      const body = await readBody(req);
+      const result = renameFace(photosDb(), body.id, body.name);
+      if (!result) {
+        sendJson(res, 404, { error: "找不到这张脸" });
+        return;
+      }
+      sendJson(res, 200, result);
       return;
     }
 
@@ -739,7 +826,7 @@ async function handle(req, res) {
         return;
       }
       const facts = fs.existsSync(photo.path) ? readPhotoFacts(photo.path) : {};
-      sendJson(res, 200, { fields: describePhoto(photo, facts) });
+      sendJson(res, 200, { fields: describePhoto(photo, facts), faces: photoFaces(photosDb(), photo.path) });
       return;
     }
 

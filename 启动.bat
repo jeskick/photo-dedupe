@@ -45,6 +45,12 @@ if errorlevel 1 (
   )
 )
 
+".venv\Scripts\python.exe" -c "import insightface, onnxruntime, cv2" >nul 2>nul
+if errorlevel 1 (
+  echo 正在安装人物识别组件，需要联网。装不上也不影响浏览和查重。
+  ".venv\Scripts\python.exe" -m pip install insightface onnxruntime opencv-python-headless
+)
+
 :start
 node src\server.js
 if errorlevel 1 pause
