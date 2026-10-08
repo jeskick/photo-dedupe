@@ -8,7 +8,7 @@ import { clusterByCapture, markOrigins, nameKey, orderForKeep, pregroupKey, with
 import { phashFiles } from "./phash.js";
 import { pruneRoots } from "./roots.js";
 import { captureBuckets, clusterPhash, hammingHex } from "./similar.js";
-import { isPersonalPhotoDir, isSoftwareBoundary, directoryHasProgram } from "./skip.js";
+import { isSoftwareBoundary, directoryHasNonPhotoFile, isBelowDriveFirstLevel } from "./skip.js";
 
 export class ScanCancelled extends Error {
   constructor() {
@@ -77,8 +77,13 @@ function walkMedia(roots, extensions, isCancelled, onFile, onProgress) {
       noteError(`${dir}: ${error.message}`);
       continue;
     }
+    const fileNames = entries.filter((entry) => entry.isFile()).map((entry) => entry.name);
+    const mixed = directoryHasNonPhotoFile(fileNames);
+    if (mixed && isBelowDriveFirstLevel(dir)) {
+      softwareSkipped += 1;
+      continue;
+    }
     dirs += 1;
-    const bundled = directoryHasProgram(entries.filter((entry) => entry.isFile()).map((entry) => entry.name));
     let skippedBundledFiles = false;
     for (const entry of entries) {
       if ((files & 63) === 0 && isCancelled()) {
@@ -87,14 +92,14 @@ function walkMedia(roots, extensions, isCancelled, onFile, onProgress) {
       const full = path.join(dir, entry.name);
       if (entry.isSymbolicLink()) continue;
       if (entry.isDirectory()) {
-        if (isSoftwareBoundary(full) || (bundled && !isPersonalPhotoDir(entry.name))) softwareSkipped += 1;
+        if (isSoftwareBoundary(full)) softwareSkipped += 1;
         else stack.push(full);
         continue;
       }
       if (!entry.isFile()) continue;
       const ext = path.extname(entry.name).toLowerCase();
       if (!extensions.has(ext) || entry.name.startsWith("._")) continue;
-      if (bundled) {
+      if (mixed) {
         skippedBundledFiles = true;
         continue;
       }

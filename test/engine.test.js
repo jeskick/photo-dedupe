@@ -124,12 +124,46 @@ test("软件目录里的图标不参与查重，拍摄目录仍保留", async ()
       matchWithoutTime: true,
       similar: false,
     });
-    assert.equal(result.filesScanned, 3);
+    assert.equal(result.filesScanned, 2);
     assert.equal(result.groups, 1);
     assert.ok(result.softwareSkipped >= 2);
     assert.deepEqual(result.found[0].files.map((file) => file.name).sort(), ["IMG_1001 (1).jpg", "IMG_1001.jpg"]);
     const scanned = result.found.flatMap((group) => group.files.map((file) => file.path));
     assert.equal(scanned.some((item) => item.includes("product-rune")), false);
+    assert.equal(scanned.some((item) => item.includes("KEEP_2002")), false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("含有非照片文件的文件夹整棵不扫描，旁边的纯照片文件夹仍扫描", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "photo-dedupe-mixed-"));
+  const photo = buildJpeg("2020:01:02 03:04:05", "12", "album-photo");
+  write(path.join(dir, "相册", "IMG_3001.jpg"), photo);
+  write(path.join(dir, "相册", "IMG_3001 (1).jpg"), photo);
+  write(path.join(dir, "相册", "desktop.ini"), Buffer.from("[.ShellClassInfo]"));
+  write(path.join(dir, "相册", "Thumbs.db"), Buffer.from("thumbs"));
+  write(path.join(dir, "相册", "IMG_3001.xmp"), Buffer.from("<xmp/>"));
+  write(path.join(dir, "文档", "notes.txt"), Buffer.from("hello"));
+  write(path.join(dir, "文档", "scan.jpg"), photo);
+  write(path.join(dir, "文档", "内层", "IMG_3002.jpg"), photo);
+  write(path.join(dir, "网页", "index.html"), Buffer.from("<html></html>"));
+  write(path.join(dir, "网页", "logo.jpg"), photo);
+  try {
+    const result = await runScan({
+      roots: [dir],
+      extensions: allKinds,
+      nameMode: "normalized",
+      toleranceSec: 0,
+      matchWithoutTime: true,
+      similar: false,
+    });
+    assert.equal(result.filesScanned, 2);
+    assert.equal(result.groups, 1);
+    assert.ok(result.softwareSkipped >= 2);
+    const scanned = result.found.flatMap((group) => group.files.map((file) => file.path));
+    assert.ok(scanned.every((item) => item.includes(`${path.sep}相册${path.sep}`)));
+    assert.equal(scanned.some((item) => item.includes("notes") || item.includes("index.html") || item.includes("IMG_3002") || item.includes("logo.jpg")), false);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -162,6 +196,7 @@ save(backup, "IMG_0001.jpg", 40)
 `);
   const made = spawnSync(pythonExecutable(), [maker, dir], { encoding: "utf8" });
   assert.equal(made.status, 0, made.stderr || made.stdout);
+  fs.unlinkSync(maker);
   try {
     const result = await runScan({
       roots: [dir],

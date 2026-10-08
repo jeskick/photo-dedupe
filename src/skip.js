@@ -1,4 +1,5 @@
 import path from "node:path";
+import { EXT_GROUPS, SIDECAR_EXTS } from "./extensions.js";
 
 const SKIP_NAMES = new Set([
   "$recycle.bin",
@@ -98,23 +99,32 @@ const ASSET_NAMES = new Set([
 const PROGRAM_EXTS = new Set([".exe", ".dll", ".mui", ".asar", ".ocx"]);
 const PROGRAM_FILES = new Set(["package.json", "uninstall.exe"]);
 
+const EXTRA_IMAGE_EXTS = [
+  ".png", ".gif", ".bmp", ".webp", ".avif", ".jfif", ".jpe", ".jp2",
+  ".svg", ".ico", ".psd", ".psb", ".jxl", ".heics", ".thm", ".lrv", ".hif",
+];
+
+const PHOTO_RELATED_EXTS = new Set([
+  ...Object.values(EXT_GROUPS).flat(),
+  ...SIDECAR_EXTS,
+  ...EXTRA_IMAGE_EXTS,
+]);
+
+const IGNORED_FILE_NAMES = new Set([
+  "desktop.ini",
+  "thumbs.db",
+  "ehthumbs.db",
+  "ehthumbs_vista.db",
+  ".ds_store",
+  ".localized",
+  ".nomedia",
+]);
+
 const DRIVE_ROOT_NAMES = new Set([
   "windows",
   "recovery",
   "$windows.~bt",
   "$winreagent",
-]);
-
-const PHOTO_DIR_NAMES = new Set([
-  "dcim",
-  "camera",
-  "cameras",
-  "100media",
-  "100apple",
-  "照片",
-  "相机",
-  "相册",
-  "wechat files",
 ]);
 
 const APP_INCLUDES = [
@@ -147,10 +157,6 @@ export function isSoftwareBoundary(fullPath) {
   return atDriveRoot && DRIVE_ROOT_NAMES.has(name);
 }
 
-export function isPersonalPhotoDir(name) {
-  return PHOTO_DIR_NAMES.has(String(name || "").toLowerCase());
-}
-
 export function directoryHasProgram(names) {
   for (const name of names) {
     const lower = String(name || "").toLowerCase();
@@ -158,6 +164,23 @@ export function directoryHasProgram(names) {
     if (PROGRAM_EXTS.has(path.win32.extname(lower))) return true;
   }
   return false;
+}
+
+export function isPhotoRelatedFile(name) {
+  const lower = String(name || "").toLowerCase();
+  if (!lower || lower.startsWith("._") || IGNORED_FILE_NAMES.has(lower)) return true;
+  const ext = path.win32.extname(lower);
+  return Boolean(ext) && PHOTO_RELATED_EXTS.has(ext);
+}
+
+export function directoryHasNonPhotoFile(names) {
+  return names.some((name) => !isPhotoRelatedFile(name));
+}
+
+/** 盘符下的一级目录再往里，例如 D:\\xxx\\YYY。盘符和一级目录本身不是。 */
+export function isBelowDriveFirstLevel(fullPath) {
+  const parts = partsOf(fullPath);
+  return parts.length >= 3 && parts[0].endsWith(":");
 }
 
 export function isBundledAssetName(name) {

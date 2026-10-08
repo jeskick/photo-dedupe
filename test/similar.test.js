@@ -63,6 +63,7 @@ save("IMG_0002.jpg", blue, 95)
 `);
   const made = spawnSync(python, [maker, dir], { encoding: "utf8" });
   assert.equal(made.status, 0, made.stderr || made.stdout);
+  fs.unlinkSync(maker);
   const high = path.join(dir, "IMG_0001.jpg");
   const low = path.join(dir, "IMG_0001 (1).jpg");
   const other = path.join(dir, "IMG_0002.jpg");

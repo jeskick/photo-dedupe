@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { directoryHasProgram, isBundledAssetName, isSoftwareBoundary } from "../src/skip.js";
+import { directoryHasNonPhotoFile, directoryHasProgram, isBelowDriveFirstLevel, isBundledAssetName, isPhotoRelatedFile, isSoftwareBoundary } from "../src/skip.js";
 
 test("跳过系统和软件自带的目录，保留拍摄目录", () => {
   assert.equal(isSoftwareBoundary("C:\\Windows"), true);
@@ -24,4 +24,17 @@ test("跳过系统和软件自带的目录，保留拍摄目录", () => {
   assert.equal(isBundledAssetName("DCIM"), false);
   assert.equal(directoryHasProgram(["readme.txt", "app.exe"]), true);
   assert.equal(directoryHasProgram(["IMG_0001.jpg", "IMG_0002.HEIC"]), false);
+  assert.equal(isPhotoRelatedFile("IMG_0001.CR2"), true);
+  assert.equal(isPhotoRelatedFile("clip.mp4"), true);
+  assert.equal(isPhotoRelatedFile("IMG_0001.xmp"), true);
+  assert.equal(isPhotoRelatedFile("desktop.ini"), true);
+  assert.equal(isPhotoRelatedFile("Thumbs.db"), true);
+  assert.equal(isPhotoRelatedFile("notes.txt"), false);
+  assert.equal(isPhotoRelatedFile("index.html"), false);
+  assert.equal(directoryHasNonPhotoFile(["IMG_0001.jpg", "desktop.ini"]), false);
+  assert.equal(directoryHasNonPhotoFile(["IMG_0001.jpg", "notes.txt"]), true);
+  assert.equal(isBelowDriveFirstLevel("D:\\"), false);
+  assert.equal(isBelowDriveFirstLevel("D:\\xxx"), false);
+  assert.equal(isBelowDriveFirstLevel("D:\\xxx\\XXX"), true);
+  assert.equal(isBelowDriveFirstLevel("D:\\xxx\\XXX\\相册"), true);
 });
