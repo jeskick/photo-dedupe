@@ -81,3 +81,32 @@ export function catalogFiles(roots, options = {}) {
     });
   }, options.onProgress || (() => {}));
 }
+
+const CAMERA_PAIR = {
+  ".cr2": [".jpg", ".jpeg"],
+  ".jpg": [".jpeg", ".cr2"],
+  ".jpeg": [".jpg", ".cr2"],
+};
+
+export function pairedCameraPaths(filePath) {
+  const resolved = path.resolve(filePath);
+  const wanted = CAMERA_PAIR[path.extname(resolved).toLowerCase()] || [];
+  const found = [resolved];
+  if (!wanted.length) return found;
+  const stem = path.parse(resolved).name.toLowerCase();
+  let entries = [];
+  try {
+    entries = fs.readdirSync(path.dirname(resolved), { withFileTypes: true });
+  } catch {
+    return found;
+  }
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    if (path.parse(entry.name).name.toLowerCase() !== stem) continue;
+    if (!wanted.includes(path.extname(entry.name).toLowerCase())) continue;
+    const full = path.resolve(path.dirname(resolved), entry.name);
+    if (found.some((item) => item.toLowerCase() === full.toLowerCase())) continue;
+    found.push(full);
+  }
+  return found;
+}

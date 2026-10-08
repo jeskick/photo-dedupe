@@ -6,11 +6,10 @@ import { Worker } from "node:worker_threads";
 import { fileURLToPath } from "node:url";
 import { extensionsFor } from "./extensions.js";
 import { applyDeletions } from "./delete.js";
-import { pickFolders, revealPath } from "./picker.js";
+import { pickFolders, recyclePaths, revealPath } from "./picker.js";
 import { renderPreviewJpeg } from "./preview.js";
-import { listDrives } from "./library-scan.js";
-import { libraryCount, libraryMeta, libraryPhoto, libraryTree, openLibrary, purgeScan, queryPhotos, setLibraryMeta, upsertPhotos } from "./library-db.js";
-
+import { listDrives, pairedCameraPaths } from "./library-scan.js";
+import { libraryCount, libraryMeta, libraryPhoto, libraryTree, openLibrary, purgeScan, queryPhotos, removePhotos, setLibraryMeta, setRating, upsertPhotos } from "./library-db.js";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, "..", "public");
 const libraryDbPath = process.env.LIBRARY_DB || path.join(here, "..", "data", "library.sqlite");
@@ -561,6 +560,48 @@ async function handle(req, res) {
     if (req.method === "POST" && url.pathname === "/api/library/scan") {
       const started = startLibraryScan();
       sendJson(res, 200, started);
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/library/rating") {
+      const body = await readBody(req);
+      const target = path.resolve(String(body.path || ""));
+      if (!libraryPhoto(photosDb(), target)) {
+        sendJson(res, 404, { error: "照片不在库里" });
+        return;
+      }
+      const rating = setRating(photosDb(), target, body.rating);
+      sendJson(res, 200, { rating });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/library/delete") {
+      const body = await readBody(req);
+      const target = path.resolve(String(body.path || ""));
+      const photo = libraryPhoto(photosDb(), target);
+      if (!photo) {
+        sendJson(res, 404, { error: "照片不在库里" });
+        return;
+      }
+      const paths = pairedCameraPaths(photo.path).filter((item) => fs.existsSync(item));
+      if (!body.confirm) {
+        sendJson(res, 200, { paths });
+        return;
+      }
+      if (!paths.length) {
+        removePhotos(photosDb(), [photo.path]);
+        sendJson(res, 200, { deleted: [photo.path], missing: true });
+        return;
+      }
+      const results = await recyclePaths(paths);
+      const deleted = results.filter((item) => item.ok).map((item) => item.path);
+      const failed = results.filter((item) => !item.ok);
+      if (deleted.length) removePhotos(photosDb(), deleted);
+      if (!deleted.length) {
+        sendJson(res, 500, { deleted, failed, error: failed[0]?.error || "没能移入回收站" });
+        return;
+      }
+      sendJson(res, 200, { deleted, failed });
       return;
     }
 

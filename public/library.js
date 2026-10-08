@@ -13,6 +13,12 @@ const scrubEl = document.querySelector("#scrub");
 const scrubTrack = document.querySelector("#scrub-track");
 const scrubLabel = document.querySelector("#scrub-label");
 let scrubTimer = 0;
+let scrollLock = 0;
+let dragOrigin = null;
+let blockScrubClick = false;
+let pendingMark = null;
+let scrubSeekTimer = 0;
+let loadGen = 0;
 
 const state = {
   days: [],
@@ -94,7 +100,7 @@ function renderScrub() {
 
 function visibleMonth() {
   const edge = stageEl.getBoundingClientRect().top + 28;
-  const sections = [...mosaicEl.querySelectorAll(".month")];
+  const sections = [...mosaicEl.querySelectorAll(".photo-month")];
   let current = sections[0] || null;
   for (const section of sections) {
     if (section.getBoundingClientRect().top <= edge) current = section;
@@ -103,6 +109,7 @@ function visibleMonth() {
 }
 
 function placeScrubLabel() {
+  if (scrubEl.classList.contains("dragging")) return;
   const section = visibleMonth();
   if (!section) {
     scrubLabel.hidden = true;
@@ -130,18 +137,68 @@ function showScrub() {
   placeScrubLabel();
   clearTimeout(scrubTimer);
   scrubTimer = setTimeout(() => {
-    if (scrubEl.matches(":hover")) return;
+    if (scrubEl.matches(":hover") || scrubEl.classList.contains("dragging")) return;
     scrubEl.classList.remove("show");
     scrubEl.setAttribute("aria-hidden", "true");
   }, 2500);
 }
 
+function scrubMonths() {
+  const marks = [];
+  for (const year of nest(state.days)) {
+    for (const month of year.months) marks.push({ year: year.year, month: month.month });
+  }
+  return marks;
+}
+
+function monthAtRatio(ratio) {
+  const years = nest(state.days);
+  if (!years.length) return null;
+  const clamped = Math.min(1, Math.max(0, ratio));
+  if (years.length === 1) {
+    const months = years[0].months;
+    const index = Math.min(months.length - 1, Math.floor(clamped * months.length));
+    return { year: years[0].year, month: months[index].month };
+  }
+  const pos = clamped * (years.length - 1);
+  let yearIndex = Math.floor(pos);
+  if (yearIndex >= years.length - 1) yearIndex = years.length - 2;
+  const local = pos - yearIndex;
+  if (local > 0.98) {
+    const next = years[yearIndex + 1];
+    return { year: next.year, month: next.months[0].month };
+  }
+  const months = years[yearIndex].months;
+  const index = Math.min(months.length - 1, Math.floor(local * months.length));
+  return { year: years[yearIndex].year, month: months[index].month };
+}
+
+function moveScrub(event) {
+  const rect = scrubEl.getBoundingClientRect();
+  const ratio = (event.clientY - rect.top) / Math.max(1, rect.height);
+  const mark = monthAtRatio(ratio);
+  if (!mark) return;
+  pendingMark = mark;
+  scrubLabel.hidden = false;
+  scrubLabel.textContent = `${mark.year}年${mark.month}月`;
+  scrubLabel.style.top = `${Math.min(rect.height, Math.max(0, event.clientY - rect.top))}px`;
+  for (const button of scrubTrack.querySelectorAll(".scrub-year")) {
+    button.classList.toggle("on", button.dataset.year === String(mark.year));
+  }
+  clearTimeout(scrubSeekTimer);
+  scrubSeekTimer = setTimeout(() => {
+    scrubSeekTimer = 0;
+    if (pendingMark) jumpYear(pendingMark.year, pendingMark.month);
+  }, 80);
+}
+
 function jumpYear(year, month = "") {
   const section = month
     ? document.getElementById(`m-${year}-${month}`)
-    : mosaicEl.querySelector(`.month[data-year="${year}"]`);
+    : mosaicEl.querySelector(`.photo-month[data-year="${year}"]`);
   if (section && !state.year && !state.month && !state.day) {
-    section.scrollIntoView({ block: "start" });
+    section.scrollIntoView({ block: "start", inline: "nearest" });
+    stageEl.scrollLeft = 0;
     showScrub();
     return;
   }
@@ -200,8 +257,82 @@ function perRow() {
   return Math.max(2, Math.floor(width / cell));
 }
 
+function trashIcon() {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  const shape = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  shape.setAttribute("fill", "currentColor");
+  shape.setAttribute("d", "M9 3h6l1 2h5v2H3V5h5l1-2zm1 6h2v10h-2V9zm4 0h2v10h-2V9zM6 9h2v10H6V9z");
+  svg.append(shape);
+  return svg;
+}
+
+function paintStars(stars, rating) {
+  for (const button of stars.querySelectorAll(".star")) {
+    button.classList.toggle("on", Number(button.dataset.value) <= rating);
+  }
+  const toggle = stars.parentElement?.querySelector(".star-toggle");
+  if (!toggle) return;
+  toggle.textContent = rating ? "★" : "☆";
+  toggle.classList.toggle("on", rating > 0);
+  toggle.title = rating ? `已加 ${rating} 星` : "加星";
+}
+
+async function ratePhoto(photo, rating, stars) {
+  const response = await fetch("/api/library/rating", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path: photo.path, rating }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    statusEl.textContent = data.error || "没能记下星级";
+    return;
+  }
+  photo.rating = data.rating;
+  paintStars(stars, photo.rating);
+}
+
+async function deletePhoto(photo) {
+  const ask = await fetch("/api/library/delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path: photo.path }),
+  });
+  const plan = await ask.json().catch(() => ({}));
+  if (!ask.ok) {
+    statusEl.textContent = plan.error || "无法删除";
+    return;
+  }
+  const names = (plan.paths || []).map((item) => item.split(/[/\\]/).pop());
+  const message = names.length > 1
+    ? `${names.join(" 和 ")} 是同一次拍摄的 CR2 和 JPG，会一起移入回收站。`
+    : `把「${photo.name}」移入回收站？`;
+  if (!window.confirm(message)) return;
+  const response = await fetch("/api/library/delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path: photo.path, confirm: true }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    statusEl.textContent = data.error || "没能移入回收站";
+    return;
+  }
+  const gone = new Set((data.deleted || []).map((item) => item.toLowerCase()));
+  const openPath = state.open >= 0 ? state.photos[state.open]?.path : "";
+  state.photos = state.photos.filter((item) => !gone.has(item.path.toLowerCase()));
+  if (openPath && gone.has(openPath.toLowerCase())) closeViewer();
+  renderMosaic(true);
+  statusEl.textContent = names.length > 1 ? "这两张已移入回收站。" : "已移入回收站。";
+  await loadTree();
+  await refreshQuiet();
+  if (!state.done && state.photos.length < 40) loadPhotos(false);
+}
+
 function makeTile(photo, index, wide) {
-  const tile = h("button", { class: "tile", type: "button", title: photo.name });
+  const tile = h("div", { class: "tile", title: photo.name });
   tile.style.flex = wide ? "1 1 0" : "0 1 auto";
   tile.style.width = wide ? "auto" : `${Math.round(rowHeight() * 1.45)}px`;
   tile.style.maxWidth = wide ? "none" : "42%";
@@ -209,7 +340,40 @@ function makeTile(photo, index, wide) {
   const img = h("img", { alt: photo.name, loading: "lazy" });
   img.src = `/api/library/thumb?path=${encodeURIComponent(photo.path)}`;
   img.addEventListener("error", () => tile.classList.add("broken"));
-  tile.append(img);
+  const tools = h("div", { class: "tile-tools" });
+  const rate = h("div", { class: "rate" });
+  const toggle = h("button", {
+    class: `tool star-toggle${photo.rating ? " on" : ""}`,
+    type: "button",
+    text: photo.rating ? "★" : "☆",
+    title: photo.rating ? `已加 ${photo.rating} 星` : "加星",
+  });
+  const stars = h("div", { class: "stars" });
+  for (let value = 1; value <= 5; value += 1) {
+    const star = h("button", { class: "tool star", type: "button", text: "★", title: `${value} 星` });
+    star.dataset.value = String(value);
+    if (Number(photo.rating) >= value) star.classList.add("on");
+    star.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const next = Number(photo.rating) === value ? 0 : value;
+      ratePhoto(photo, next, stars);
+    });
+    stars.append(star);
+  }
+  const del = h("button", { class: "tool del", type: "button", title: "移入回收站" });
+  del.append(trashIcon());
+  del.addEventListener("click", (event) => {
+    event.stopPropagation();
+    deletePhoto(photo);
+  });
+  rate.append(toggle, stars);
+  tools.append(rate, del);
+  tools.addEventListener("click", (event) => event.stopPropagation());
+  tools.addEventListener("dblclick", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+  tile.append(img, tools);
   let timer = 0;
   tile.addEventListener("click", () => {
     clearTimeout(timer);
@@ -223,65 +387,96 @@ function makeTile(photo, index, wide) {
   return tile;
 }
 
-function renderMosaic() {
+function holdScroll() {
+  scrollLock += 1;
+  setTimeout(() => {
+    scrollLock = Math.max(0, scrollLock - 1);
+  }, 200);
+}
+
+function appendRange(start, end) {
+  const size = perRow();
+  let index = start;
+  while (index < end) {
+    const first = state.photos[index];
+    let section = document.getElementById(`m-${first.year}-${first.month}`);
+    let body;
+    if (!section) {
+      section = h("section", { class: "photo-month", id: `m-${first.year}-${first.month}` });
+      section.dataset.year = String(first.year);
+      section.dataset.month = String(first.month);
+      body = h("div", { class: "month-body" });
+      section.append(body);
+      mosaicEl.append(section);
+    } else {
+      body = section.querySelector(".month-body");
+    }
+    let row = body.lastElementChild;
+    while (index < end) {
+      const photo = state.photos[index];
+      if (photo.year !== first.year || photo.month !== first.month) break;
+      if (!row || row.children.length >= size) {
+        row = h("div", { class: "row" });
+        body.append(row);
+      }
+      row.append(makeTile(photo, index, true));
+      index += 1;
+    }
+  }
+  mosaicEl.querySelector(".more")?.remove();
+  mosaicEl.querySelector(".empty")?.remove();
+  if (!state.done) mosaicEl.append(h("div", { class: "more", text: "" }));
+}
+
+function renderMosaic(keepScroll) {
+  const top = keepScroll ? stageEl.scrollTop : 0;
+  holdScroll();
   mosaicEl.replaceChildren();
   if (!state.photos.length) {
     const empty = h("div", { class: "empty" });
     empty.append(h("div", { text: state.q ? "没有符合搜索的照片。" : "还没有照片。点左侧「扫描全部磁盘」，只会收录正常照片。" }));
     mosaicEl.append(empty);
+    stageEl.scrollTop = 0;
     return;
   }
-    const size = perRow();
-    let index = 0;
-    while (index < state.photos.length) {
-      const first = state.photos[index];
-      const start = index;
-      const group = [];
-      while (index < state.photos.length) {
-        const photo = state.photos[index];
-        if (photo.year !== first.year || photo.month !== first.month) break;
-        group.push(photo);
-        index += 1;
-      }
-      const section = h("section", { class: "month", id: `m-${first.year}-${first.month}` });
-      section.dataset.year = String(first.year);
-      section.dataset.month = String(first.month);
-      const body = h("div", { class: "month-body" });
-      for (let cursor = 0; cursor < group.length; cursor += size) {
-        const slice = group.slice(cursor, cursor + size);
-        const row = h("div", { class: "row" });
-        slice.forEach((photo, offset) => row.append(makeTile(photo, start + cursor + offset, true)));
-        body.append(row);
-      }
-      section.append(body);
-      mosaicEl.append(section);
-    }
-  if (!state.done) mosaicEl.append(h("div", { class: "more", text: state.loading ? "正在加载…" : "" }));
+  appendRange(0, state.photos.length);
+  stageEl.scrollTop = top;
 }
 
 async function loadPhotos(reset) {
-  if (state.loading) return;
-  if (!reset && state.done) return;
+  if (reset) loadGen += 1;
+  else if (state.loading || state.done) return;
+  const gen = loadGen;
   state.loading = true;
   if (reset) {
     state.photos = [];
     state.offset = 0;
     state.done = false;
-    renderMosaic();
   }
   const params = new URLSearchParams({ offset: String(state.offset), limit: "80" });
   if (state.year) params.set("year", state.year);
   if (state.month) params.set("month", state.month);
   if (state.day) params.set("day", state.day);
   if (state.q) params.set("q", state.q);
-  const response = await fetch(`/api/library/photos?${params}`);
+  let response;
+  try {
+    response = await fetch(`/api/library/photos?${params}`);
+  } catch {
+    if (gen !== loadGen) return;
+    state.loading = false;
+    statusEl.textContent = "照片列表加载失败";
+    return;
+  }
   const data = await response.json();
+  if (gen !== loadGen) return;
   const photos = data.photos || [];
+  const start = state.photos.length;
   state.photos.push(...photos);
   state.offset += photos.length;
   state.done = photos.length < 80;
   state.loading = false;
-  renderMosaic();
+  if (start === 0) renderMosaic(false);
+  else appendRange(start, state.photos.length);
 }
 
 async function loadTree() {
@@ -405,14 +600,56 @@ searchEl.addEventListener("input", () => {
   searchEl._timer = setTimeout(() => loadPhotos(true), 250);
 });
 stageEl.addEventListener("scroll", () => {
-  showScrub();
+  if (scrollLock) return;
+  if (!scrubEl.classList.contains("dragging")) showScrub();
   if (stageEl.scrollTop + stageEl.clientHeight > stageEl.scrollHeight - 400) loadPhotos(false);
 });
 scrubEl.addEventListener("mouseenter", () => clearTimeout(scrubTimer));
-scrubEl.addEventListener("mouseleave", () => showScrub());
+scrubEl.addEventListener("mouseleave", () => {
+  if (!scrubEl.classList.contains("dragging")) showScrub();
+});
+scrubEl.addEventListener("pointerdown", (event) => {
+  if (event.button !== 0) return;
+  dragOrigin = { x: event.clientX, y: event.clientY, dragging: false };
+  scrubEl.setPointerCapture(event.pointerId);
+});
+scrubEl.addEventListener("pointermove", (event) => {
+  if (!dragOrigin) return;
+  const distance = Math.hypot(event.clientX - dragOrigin.x, event.clientY - dragOrigin.y);
+  if (!dragOrigin.dragging && distance < 4) return;
+  if (!dragOrigin.dragging) {
+    dragOrigin.dragging = true;
+    scrubEl.classList.add("dragging", "show");
+    scrubEl.setAttribute("aria-hidden", "false");
+    clearTimeout(scrubTimer);
+  }
+  event.preventDefault();
+  moveScrub(event);
+});
+function finishScrubDrag() {
+  const wasDragging = Boolean(dragOrigin?.dragging);
+  dragOrigin = null;
+  scrubEl.classList.remove("dragging");
+  if (!wasDragging) return;
+  blockScrubClick = true;
+  clearTimeout(scrubSeekTimer);
+  scrubSeekTimer = 0;
+  const mark = pendingMark;
+  pendingMark = null;
+  if (mark) jumpYear(mark.year, mark.month);
+  showScrub();
+}
+scrubEl.addEventListener("pointerup", finishScrubDrag);
+scrubEl.addEventListener("pointercancel", finishScrubDrag);
+scrubEl.addEventListener("click", (event) => {
+  if (!blockScrubClick) return;
+  blockScrubClick = false;
+  event.preventDefault();
+  event.stopPropagation();
+}, true);
 window.addEventListener("resize", () => {
   clearTimeout(window._layout);
-  window._layout = setTimeout(renderMosaic, 150);
+  window._layout = setTimeout(() => renderMosaic(true), 150);
 });
 document.querySelector("#viewer-close").addEventListener("click", closeViewer);
 document.querySelector("#viewer-open").addEventListener("click", () => {

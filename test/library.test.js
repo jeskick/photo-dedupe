@@ -4,7 +4,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { catalogFiles, parseDriveList, utcParts } from "../src/library-scan.js";
-import { libraryCount, libraryTree, openLibrary, purgeScan, queryPhotos, upsertPhotos } from "../src/library-db.js";
+import { libraryCount, libraryPhoto, libraryTree, openLibrary, purgeScan, queryPhotos, setRating, upsertPhotos } from "../src/library-db.js";
+import { pairedCameraPaths } from "../src/library-scan.js";
 import { buildJpeg } from "./builders.js";
 
 test("磁盘列表只保留盘符", () => {
@@ -41,5 +42,22 @@ test("照片库按时间保存，混有其他文件的目录不进入", () => {
   assert.equal(tree[0].count, 2);
   const listed = queryPhotos(db, { year: 2020, month: 1, q: "kept" });
   assert.equal(listed.length, 2);
+  const kept = listed[0];
+  setRating(db, kept.path, 4);
+  upsertPhotos(db, found.map((file) => ({ ...file, name: "kept.jpg" })), 3);
+  assert.equal(libraryPhoto(db, kept.path).rating, 4);
   db.close();
+});
+
+test("同目录同名的 CR2 和 JPG 会一起列出", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "photo-pair-"));
+  const jpg = path.join(dir, "IMG_0001.JPG");
+  const cr2 = path.join(dir, "IMG_0001.CR2");
+  fs.writeFileSync(jpg, "a");
+  fs.writeFileSync(cr2, "b");
+  fs.writeFileSync(path.join(dir, "IMG_0001.xmp"), "c");
+  fs.writeFileSync(path.join(dir, "other.jpg"), "d");
+  const paired = pairedCameraPaths(jpg).map((item) => path.basename(item).toLowerCase()).sort();
+  assert.deepEqual(paired, ["img_0001.cr2", "img_0001.jpg"]);
+  assert.deepEqual(pairedCameraPaths(path.join(dir, "other.jpg")).map((item) => path.basename(item)), ["other.jpg"]);
 });

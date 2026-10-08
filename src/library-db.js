@@ -30,6 +30,10 @@ export function openLibrary(dbPath) {
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA busy_timeout = 5000");
   db.exec(SCHEMA);
+  const columns = db.prepare("PRAGMA table_info(photos)").all();
+  if (!columns.some((column) => column.name === "rating")) {
+    db.exec("ALTER TABLE photos ADD COLUMN rating INTEGER NOT NULL DEFAULT 0");
+  }
   return db;
 }
 
@@ -94,7 +98,26 @@ export function libraryCount(db) {
 }
 
 export function libraryPhoto(db, filePath) {
-  return db.prepare("SELECT path, name, ext, dir, size, mtime_ms AS mtimeMs, capture_ms AS captureMs, year, month, day FROM photos WHERE path = ?").get(filePath) || null;
+  return db.prepare("SELECT path, name, ext, dir, size, mtime_ms AS mtimeMs, capture_ms AS captureMs, year, month, day, rating FROM photos WHERE path = ?").get(filePath) || null;
+}
+
+export function setRating(db, filePath, rating) {
+  const value = Math.max(0, Math.min(5, Math.round(Number(rating) || 0)));
+  const result = db.prepare("UPDATE photos SET rating = ? WHERE path = ?").run(value, filePath);
+  return result.changes ? value : null;
+}
+
+export function removePhotos(db, paths) {
+  if (!paths.length) return;
+  const stmt = db.prepare("DELETE FROM photos WHERE path = ? COLLATE NOCASE");
+  db.exec("BEGIN");
+  try {
+    for (const filePath of paths) stmt.run(filePath);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
 }
 
 export function libraryTree(db) {
@@ -125,7 +148,7 @@ export function queryPhotos(db, filter = {}) {
   const offset = Math.max(0, Number(filter.offset) || 0);
   params.push(limit, offset);
   const sql = `
-    SELECT path, name, ext, dir, capture_ms AS captureMs, year, month, day
+    SELECT path, name, ext, dir, capture_ms AS captureMs, year, month, day, rating
     FROM photos
     ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
     ORDER BY capture_ms DESC, path COLLATE NOCASE
