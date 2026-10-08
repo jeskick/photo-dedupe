@@ -30,6 +30,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: auto;
   padding: 18px 12px 14px;
   border-right: 1px solid var(--line);
   background: var(--nav);
@@ -64,8 +65,9 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
     #394457;
 }
 .nav-item.on .ico { background-color: transparent; box-shadow: inset 0 0 0 2px white; }
-.fold { display: flex; flex-direction: column; min-height: 0; }
-.fold.grow.open { flex: 1; }
+.fold { display: flex; flex-direction: column; flex-shrink: 0; min-height: 0; }
+.fold.grow { flex: 1; flex-shrink: 1; min-height: 120px; }
+.fold.grow.open { min-height: 120px; }
 .fold-head {
   display: flex;
   align-items: center;
@@ -241,7 +243,11 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .scrub-label[hidden] { display: none; }
 .row { display: flex; width: 100%; min-width: 0; gap: 2px; margin-bottom: 2px; }
 .row.short { width: auto; max-width: 100%; }
-.names { display: flex; flex-direction: column; gap: 2px; margin: 6px 0; }
+.names { display: flex; flex-direction: column; gap: 2px; margin: 6px 0; max-height: min(240px, 32vh); overflow: auto; }
+#recognize-status:empty { display: none; min-height: 0; }
+#recognize, #recognize-stop { width: 100%; margin-top: 6px; border: 0; border-radius: 999px; padding: 10px 14px; }
+#recognize { background: var(--blue); color: white; }
+#recognize:hover { background: #1765cc; }
 .names button { text-align: left; background: transparent; color: #d7dadf; border: 0; border-radius: 6px; padding: 4px 8px; cursor: pointer; }
 .names button.active, .ratings button.active { background: rgba(255,255,255,0.1); }
 .names button:hover { background: rgba(255,255,255,0.06); }

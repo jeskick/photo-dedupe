@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { bestName, bestPerson, facesToRename } from "../src/faces.js";
+import { bestName, bestPerson, clusterPeople, facesToRename } from "../src/faces.js";
 import { libraryMarks, loadPeople, openLibrary, photoFaces, purgeScan, queryPhotos, renameFace, saveRecognition, upsertPhotos } from "../src/library-db.js";
 
 test("相似的脸用同一个名字，差得远的不会带上", () => {
@@ -16,6 +16,17 @@ test("相似的脸用同一个名字，差得远的不会带上", () => {
   const faces = [target, { id: 2, embedding: [0.98, 0.02, 0] }, { id: 3, embedding: [0, 1, 0] }];
   assert.deepEqual(facesToRename(target, faces, "小明").map((item) => item.id), [1, 2]);
   assert.deepEqual(facesToRename(target, faces, "  "), [{ id: 1, name: "" }]);
+});
+
+test("零碎的脸并进最近的人，两个主要的人不会并成一个", () => {
+  const personA = Array.from({ length: 8 }, (_, index) => ({ id: index + 1, embedding: [1, 0, 0] }));
+  const personB = Array.from({ length: 8 }, (_, index) => ({ id: index + 9, embedding: [0, 1, 0] }));
+  const fragment = { id: 20, embedding: [0.22, 0, 0.975] };
+  const groups = clusterPeople([...personA, ...personB, fragment]);
+  assert.equal(groups.length, 2);
+  const joined = groups.find((group) => group.members.some((face) => face.id === 20));
+  assert.equal(joined.members.some((face) => face.id === 1), true);
+  assert.equal(joined.members.some((face) => face.id === 9), false);
 });
 
 test("标记名字后能按人和场景筛选，删照片会清掉标记", () => {

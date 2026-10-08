@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { bestPerson, bufferFromEmbedding, embeddingFromBuffer } from "./faces.js";
+import { bestPerson, bufferFromEmbedding, clusterPeople, embeddingFromBuffer } from "./faces.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS photos (
@@ -382,7 +382,52 @@ export function attachLooseFaces(db) {
   return loose.length;
 }
 
+const PEOPLE_CLUSTER = "3";
+
+export function rebuildPeople(db) {
+  const faces = db.prepare("SELECT id, name, embedding FROM faces").all().map((row) => ({
+    id: row.id,
+    name: row.name || "",
+    embedding: embeddingFromBuffer(row.embedding),
+  }));
+  const groups = clusterPeople(faces);
+  db.exec("BEGIN");
+  try {
+    db.exec("DELETE FROM people");
+    const insert = db.prepare("INSERT INTO people (name, exemplar) VALUES (?, ?)");
+    const update = db.prepare("UPDATE faces SET person_id = ?, name = ? WHERE id = ?");
+    for (const group of groups) {
+      const counts = new Map();
+      for (const face of group.members) {
+        if (face.name) counts.set(face.name, (counts.get(face.name) || 0) + 1);
+      }
+      let name = "";
+      let best = 0;
+      for (const [value, count] of counts) {
+        if (count > best) {
+          best = count;
+          name = value;
+        }
+      }
+      const personId = Number(insert.run(name, bufferFromEmbedding(group.center)).lastInsertRowid);
+      for (const face of group.members) update.run(personId, name, face.id);
+    }
+    setLibraryMeta(db, "peopleCluster", PEOPLE_CLUSTER);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+  return groups.length;
+}
+
+export function ensurePeopleClusters(db, force = false) {
+  if (!force && libraryMeta(db).peopleCluster === PEOPLE_CLUSTER) return 0;
+  return rebuildPeople(db);
+}
+
 export function libraryMarks(db) {
+  ensurePeopleClusters(db);
   attachLooseFaces(db);
   const counts = Object.fromEntries(db.prepare("SELECT label, COUNT(*) AS count FROM labels GROUP BY label").all().map((row) => [row.label, row.count]));
   return {

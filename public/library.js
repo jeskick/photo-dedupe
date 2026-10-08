@@ -839,7 +839,7 @@ function renderMarks() {
   let unnamed = 0;
   for (const item of state.marks.people || []) {
     const title = item.name || `人物 ${++unnamed}`;
-    const button = h("button", { type: "button", text: `${title}  ${item.count}` });
+    const button = h("button", { type: "button", text: `${title} · ${item.count}` });
     button.classList.toggle("on", String(state.personId) === String(item.id));
     button.addEventListener("click", () => {
       state.personId = String(state.personId) === String(item.id) ? "" : String(item.id);

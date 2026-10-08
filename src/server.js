@@ -9,7 +9,7 @@ import { applyDeletions } from "./delete.js";
 import { pickFolders, recyclePaths, revealPath } from "./picker.js";
 import { renderPreviewJpeg } from "./preview.js";
 import { listDrives, pairedCameraPaths } from "./library-scan.js";
-import { libraryCount, libraryMarks, libraryMeta, libraryPhoto, libraryPhotoPaths, librarySettings, libraryTree, loadPeople, openLibrary, photoFaces, purgeScan, queryPhotos, removePhotos, renameFace, renamePerson, saveLibrarySettings, saveRecognition, setLibraryMeta, setRating, upsertPhotos } from "./library-db.js";
+import { ensurePeopleClusters, libraryCount, libraryMarks, libraryMeta, libraryPhoto, libraryPhotoPaths, librarySettings, libraryTree, loadPeople, openLibrary, photoFaces, purgeScan, queryPhotos, removePhotos, renameFace, renamePerson, saveLibrarySettings, saveRecognition, setLibraryMeta, setRating, upsertPhotos } from "./library-db.js";
 import { describePhoto, readPhotoFacts } from "./photo-info.js";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, "..", "public");
@@ -193,6 +193,9 @@ function startRecognize(onlyPath) {
         total: recognizeJob.progress.total,
       };
       return;
+    }
+    if (message.type === "done" || message.type === "cancelled") {
+      try { ensurePeopleClusters(photosDb(), true); } catch { /* 分组失败不影响已经认出的脸 */ }
     }
     if (message.type === "failed") recognizeNote = message.message || "人物识别失败";
     if (message.type === "cancelled") recognizeNote = "已停止识别。已经归好的组会留在左侧。";
