@@ -277,6 +277,11 @@ function ratingClause(filter, where, params) {
     params.push(person, person);
   }
   const personId = Number(filter.personId);
+  const personIds = String(filter.personIds || "")
+    .split(",")
+    .map((item) => Number(item))
+    .filter((item) => Number.isInteger(item) && item > 0)
+    .slice(0, 1000);
   if (personId > 0) {
     where.push(`path IN (
       SELECT path FROM faces WHERE person_id = ?
@@ -284,6 +289,14 @@ function ratingClause(filter, where, params) {
       SELECT path FROM appearances WHERE person_id = ?
     )`);
     params.push(personId, personId);
+  } else if (personIds.length) {
+    const marks = personIds.map(() => "?").join(", ");
+    where.push(`path IN (
+      SELECT path FROM faces WHERE person_id IN (${marks})
+      UNION
+      SELECT path FROM appearances WHERE person_id IN (${marks})
+    )`);
+    params.push(...personIds, ...personIds);
   }
 }
 

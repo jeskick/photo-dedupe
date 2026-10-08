@@ -80,6 +80,7 @@ test("标记名字后能按人和场景筛选，删照片会清掉标记", () =>
   assert.equal(libraryMarks(db).people.length, 1);
   assert.equal(libraryMarks(db).people[0].count, 2);
   assert.equal(queryPhotos(db, { personId: libraryMarks(db).people[0].id }).length, 2);
+  assert.equal(queryPhotos(db, { personIds: `${libraryMarks(db).people[0].id},999` }).length, 2);
   const third = { ...other, path: path.join(dir, "c.jpg"), name: "c.jpg" };
   upsertPhotos(db, [third], 1);
   saveRecognition(db, third.path, [[0.97, 0.04, 0]], [], loadPeople(db));

@@ -694,6 +694,7 @@ async function handle(req, res) {
         label: url.searchParams.get("label"),
         person: url.searchParams.get("person"),
         personId: url.searchParams.get("personId"),
+        personIds: url.searchParams.get("personIds"),
         }),
       });
       return;
@@ -710,6 +711,7 @@ async function handle(req, res) {
         label: url.searchParams.get("label"),
         person: url.searchParams.get("person"),
         personId: url.searchParams.get("personId"),
+        personIds: url.searchParams.get("personIds"),
         q: url.searchParams.get("q"),
         offset: url.searchParams.get("offset"),
         limit: url.searchParams.get("limit"),

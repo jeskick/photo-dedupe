@@ -40,7 +40,7 @@ const state = {
   label: "",
   person: "",
   personId: "",
-  showOthers: false,
+  others: false,
   marks: { labels: { person: 0, animal: 0, landscape: 0 }, people: [] },
   settings: { excludeDirs: [], minEdgePhoto: 0, minEdgeVideo: 0 },
   loading: false,
@@ -524,7 +524,7 @@ function renderMosaic(keepScroll) {
     const sceneName = { person: "人物", animal: "动物", landscape: "风景" };
     const emptyText = state.q
       ? `没有符合搜索的${noun}。`
-      : state.personId
+      : state.personId || state.others
         ? "这一组还没有照片。"
         : state.person
           ? `还没有标成「${state.person}」的照片。`
@@ -542,6 +542,18 @@ function renderMosaic(keepScroll) {
   }
   appendRange(0, state.photos.length);
   stageEl.scrollTop = top;
+}
+
+function addPersonParams(params) {
+  if (state.personId) {
+    params.set("personId", state.personId);
+    return;
+  }
+  if (!state.others) return;
+  const people = state.marks.people || [];
+  if (!people.some((item) => item.count >= 8)) return;
+  const ids = people.filter((item) => item.count < 8).map((item) => item.id);
+  if (ids.length) params.set("personIds", ids.join(","));
 }
 
 async function loadPhotos(reset) {
@@ -564,7 +576,7 @@ async function loadPhotos(reset) {
   if (state.origin) params.set("origin", state.origin);
   if (state.label) params.set("label", state.label);
   if (state.person) params.set("person", state.person);
-  if (state.personId) params.set("personId", state.personId);
+  addPersonParams(params);
   let response;
   try {
     response = await fetch(`/api/library/photos?${params}`);
@@ -595,7 +607,7 @@ async function loadTree() {
   if (state.origin) params.set("origin", state.origin);
   if (state.label) params.set("label", state.label);
   if (state.person) params.set("person", state.person);
-  if (state.personId) params.set("personId", state.personId);
+  addPersonParams(params);
   const response = await fetch(`/api/library/tree?${params}`);
   const data = await response.json();
   if (gen !== treeGen) return;
@@ -845,6 +857,7 @@ function setKind(kind) {
     state.label = "";
     state.person = "";
     state.personId = "";
+    state.others = false;
   }
   renderMarks();
   state.year = "";
@@ -865,7 +878,7 @@ function renderMarks() {
   for (const button of document.querySelectorAll("#scenes button")) {
     const count = state.marks.labels?.[button.dataset.label] || 0;
     button.textContent = `${SCENE_TEXT[button.dataset.label]} ${count}`;
-    button.classList.toggle("on", state.label === button.dataset.label && !state.personId);
+    button.classList.toggle("on", state.label === button.dataset.label && !state.personId && !state.others);
   }
   const names = document.querySelector("#names");
   names.replaceChildren();
@@ -881,6 +894,7 @@ function renderMarks() {
     const button = h("button", { type: "button", text: `${row.title} · ${row.item.count}` });
     button.classList.toggle("on", String(state.personId) === String(row.item.id));
     button.addEventListener("click", () => {
+      state.others = false;
       state.personId = String(state.personId) === String(row.item.id) ? "" : String(row.item.id);
       state.person = "";
       state.label = "";
@@ -893,17 +907,20 @@ function renderMarks() {
   if (rest.length) {
     const toggle = h("button", {
       type: "button",
-      text: `${state.showOthers ? "收起其他" : "其他"} · ${rest.length}`,
+      class: state.others ? "on" : "",
+      text: `其他 · ${rest.length}`,
     });
     toggle.addEventListener("click", () => {
-      state.showOthers = !state.showOthers;
-      renderMarks();
+      state.others = !state.others;
+      if (state.others) {
+        state.personId = "";
+        state.person = "";
+        state.label = "";
+        if (state.kind === "video") state.kind = "photo";
+      }
+      applyMarkFilter();
     });
     names.append(toggle);
-    const shown = state.showOthers
-      ? rest
-      : rest.filter((row) => String(row.item.id) === String(state.personId));
-    for (const row of shown) addPerson(row);
   }
   renderNameBox();
 }
@@ -956,6 +973,7 @@ document.querySelector("#scenes").addEventListener("click", (event) => {
   state.label = state.label === label && !state.personId ? "" : label;
   state.person = "";
   state.personId = "";
+  state.others = false;
   if (state.label && state.kind === "video") state.kind = "photo";
   applyMarkFilter();
 });
@@ -989,7 +1007,7 @@ async function watchRecognize() {
     statusEl.textContent = text;
     if (note) note.textContent = text;
     await loadMarks();
-    if (state.personId || state.label || state.person) loadPhotos(true);
+    if (state.personId || state.others || state.label || state.person) loadPhotos(true);
   };
   recognizeTimer = setInterval(tick, 1000);
   await tick();
