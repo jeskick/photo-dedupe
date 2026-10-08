@@ -110,6 +110,8 @@ function renderScrub() {
     mark.addEventListener("click", () => jumpYear(year.year));
     scrubTrack.append(mark);
   });
+  const preview = document.querySelector(".main");
+  if (preview && (preview.matches(":hover") || preview.contains(document.activeElement))) showScrub();
 }
 
 function visibleMonth() {
@@ -144,6 +146,14 @@ function placeScrubLabel() {
   }
 }
 
+function scrubHeld() {
+  const preview = document.querySelector(".main");
+  return scrubEl.matches(":hover")
+    || scrubEl.classList.contains("dragging")
+    || preview.matches(":hover")
+    || preview.contains(document.activeElement);
+}
+
 function showScrub() {
   if (!scrubTrack.childElementCount) return;
   scrubEl.classList.add("show");
@@ -151,7 +161,7 @@ function showScrub() {
   placeScrubLabel();
   clearTimeout(scrubTimer);
   scrubTimer = setTimeout(() => {
-    if (scrubEl.matches(":hover") || scrubEl.classList.contains("dragging")) return;
+    if (scrubHeld()) return;
     scrubEl.classList.remove("show");
     scrubEl.setAttribute("aria-hidden", "true");
   }, 2500);
@@ -1055,6 +1065,12 @@ stageEl.addEventListener("scroll", () => {
   if (!scrubEl.classList.contains("dragging")) showScrub();
   if (stageEl.scrollTop + stageEl.clientHeight > stageEl.scrollHeight - 400) loadPhotos(false);
 });
+const previewEl = document.querySelector(".main");
+previewEl.addEventListener("pointerenter", () => showScrub());
+previewEl.addEventListener("pointerleave", () => {
+  if (!scrubEl.classList.contains("dragging")) showScrub();
+});
+previewEl.addEventListener("focusin", () => showScrub());
 scrubEl.addEventListener("mouseenter", () => clearTimeout(scrubTimer));
 scrubEl.addEventListener("mouseleave", () => {
   if (!scrubEl.classList.contains("dragging")) showScrub();
@@ -1077,11 +1093,13 @@ scrubEl.addEventListener("pointermove", (event) => {
   event.preventDefault();
   moveScrub(event);
 });
-function finishScrubDrag() {
+function finishScrubDrag(event) {
   const wasDragging = Boolean(dragOrigin?.dragging);
+  const origin = dragOrigin;
   dragOrigin = null;
   scrubEl.classList.remove("dragging");
-  if (!wasDragging) return;
+  if (event?.type === "pointercancel" || !origin) return;
+  if (!wasDragging) moveScrub(event);
   blockScrubClick = true;
   clearTimeout(scrubSeekTimer);
   scrubSeekTimer = 0;
