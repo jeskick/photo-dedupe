@@ -145,13 +145,18 @@ function startLibraryScan(kind) {
   return { roots, scanId };
 }
 
-function startRecognize() {
+function startRecognize(onlyPath) {
   if (runningJob() || libraryJob || recognizeJob) {
     const error = new Error("已有扫描在进行，请先停止或等待结束");
     error.status = 409;
     throw error;
   }
-  const paths = libraryPhotoPaths(photosDb());
+  const paths = onlyPath ? [onlyPath] : libraryPhotoPaths(photosDb());
+  if (onlyPath && !libraryPhoto(photosDb(), onlyPath)) {
+    const error = new Error("照片不在库里");
+    error.status = 404;
+    throw error;
+  }
   if (!paths.length) {
     const error = new Error("照片库还是空的，先扫描再识别");
     error.status = 400;
@@ -713,7 +718,9 @@ async function handle(req, res) {
     }
 
     if (req.method === "POST" && url.pathname === "/api/library/recognize") {
-      const started = startRecognize();
+      const body = await readBody(req);
+      const onlyPath = body.path ? path.resolve(String(body.path)) : "";
+      const started = startRecognize(onlyPath);
       sendJson(res, 200, started);
       return;
     }

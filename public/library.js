@@ -611,31 +611,57 @@ async function showPhotoInfo(photo) {
   if (!data.fields?.length) list.append(h("p", { class: "hint", text: data.error || "没有读到拍摄信息" }));
   const faces = h("div", { class: "face-names" });
   if (state.kind !== "video") {
-    faces.append(h("p", { class: "hint", text: "人物名字。留空只取消这一张，相似的脸会一起标上。" }));
-    if (!(data.faces || []).length) faces.append(h("p", { class: "hint", text: "这张还没有识别出人脸。" }));
-    for (const face of data.faces || []) {
-      const input = h("input", { type: "text", value: face.name || "", placeholder: "标记名字", maxlength: "40" });
-      input.addEventListener("change", async () => {
-        const response = await fetch("/api/library/face", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: face.id, name: input.value }),
-        });
-        const result = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          statusEl.textContent = result.error || "名字没能保存";
-          return;
-        }
-        statusEl.textContent = result.name
-          ? `已把 ${result.count} 张相似的脸标成「${result.name}」。`
-          : "已取消这一张的名字。";
-        await loadMarks();
-        if (state.person || state.label) loadPhotos(true);
-      });
-      faces.append(input);
-    }
+    for (const face of data.faces || []) faces.append(faceNameInput(face));
+    if (!(data.faces || []).length) faces.append(h("p", { class: "hint", text: "名字写在左侧「标记」。这张还没有人脸，点那里的「识别这张」。" }));
   }
-  infoEl.replaceChildren(list, faces);
+  if (gen !== infoGen) return;
+  infoEl.replaceChildren(faces, list);
+  renderFaceEditor(photo, data.faces || []);
+}
+
+function faceNameInput(face) {
+  const input = h("input", { type: "text", value: face.name || "", placeholder: "在这里写名字", maxlength: "40", "aria-label": "人物名字" });
+  input.addEventListener("change", () => saveFaceName(face.id, input));
+  return input;
+}
+
+async function saveFaceName(faceId, input) {
+  const response = await fetch("/api/library/face", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: faceId, name: input.value }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    statusEl.textContent = result.error || "名字没能保存";
+    return;
+  }
+  statusEl.textContent = result.name
+    ? `已把 ${result.count} 张相似的脸标成「${result.name}」。`
+    : "已取消这一张的名字。";
+  await loadMarks();
+  if (state.open >= 0) showPhotoInfo(state.photos[state.open]);
+  else if (state.person || state.label) loadPhotos(true);
+}
+
+function renderFaceEditor(photo, faces) {
+  const box = document.querySelector("#face-editor");
+  if (!box) return;
+  box.replaceChildren();
+  if (!photo || state.kind === "video") {
+    box.append(h("p", { class: "hint", text: "单击一张照片，名字就写在这里。" }));
+    return;
+  }
+  document.querySelector('[data-fold="marks"]')?.classList.add("open");
+  if (!faces.length) {
+    box.append(h("p", { class: "hint", text: "这张还没有人脸。识别完就能在下面写名字。" }));
+    const button = h("button", { type: "button", text: "识别这张" });
+    button.addEventListener("click", () => startRecognizeRequest(photo.path));
+    box.append(button);
+    return;
+  }
+  box.append(h("p", { class: "hint", text: "人物名字。留空只取消这一张。" }));
+  for (const face of faces) box.append(faceNameInput(face));
 }
 
 let viewScale = 1;
@@ -687,6 +713,7 @@ function closeViewer() {
   infoEl.hidden = true;
   infoEl.replaceChildren();
   state.open = -1;
+  renderFaceEditor(null, []);
 }
 
 function stepViewer(delta) {
@@ -904,15 +931,20 @@ async function watchRecognize() {
     if (data.recognize) statusEl.textContent = `${data.recognize.phase} ${data.recognize.done || 0} / ${data.recognize.total || 0}`;
     if (!running) {
       clearInterval(recognizeTimer);
-      statusEl.textContent = data.recognizeNote || "识别结束。左侧可以按人物、动物、风景或名字查看。";
+      statusEl.textContent = data.recognizeNote || "识别结束。有人脸的话，名字写在左侧「标记」。";
       await loadMarks();
-      if (state.label || state.person) loadPhotos(true);
+      if (state.open >= 0) showPhotoInfo(state.photos[state.open]);
+      else if (state.label || state.person) loadPhotos(true);
     }
   }, 1000);
 }
 
-document.querySelector("#recognize").addEventListener("click", async () => {
-  const response = await fetch("/api/library/recognize", { method: "POST" });
+async function startRecognizeRequest(filePath) {
+  const response = await fetch("/api/library/recognize", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(filePath ? { path: filePath } : {}),
+  });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     statusEl.textContent = data.error || "识别没有开始";
@@ -920,9 +952,11 @@ document.querySelector("#recognize").addEventListener("click", async () => {
   }
   document.querySelector("#recognize").hidden = true;
   document.querySelector("#recognize-stop").hidden = false;
-  statusEl.textContent = `开始识别 ${data.total} 张照片。`;
+  statusEl.textContent = filePath ? "正在识别这张照片。" : `开始识别 ${data.total} 张照片。`;
   watchRecognize();
-});
+}
+
+document.querySelector("#recognize").addEventListener("click", () => startRecognizeRequest());
 document.querySelector("#recognize-stop").addEventListener("click", () => {
   fetch("/api/library/recognize/cancel", { method: "POST" });
 });
@@ -1084,6 +1118,7 @@ window.addEventListener("keydown", (event) => {
 
 loadSettings().then(() => refreshQuiet()).then(async (data) => {
   await loadMarks();
+  renderFaceEditor(null, []);
   await loadTree();
   await loadPhotos(true);
   if (data.recognizing) watchRecognize();

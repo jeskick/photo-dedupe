@@ -245,8 +245,18 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .names button { text-align: left; background: transparent; color: #d7dadf; border: 0; border-radius: 6px; padding: 4px 8px; cursor: pointer; }
 .names button.active, .ratings button.active { background: rgba(255,255,255,0.1); }
 .names button:hover { background: rgba(255,255,255,0.06); }
-.face-names { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
-.face-names input { width: 100%; box-sizing: border-box; }
+.face-names { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.face-names input {
+  width: 100%;
+  box-sizing: border-box;
+  background: #303134;
+  color: #e8eaed;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.face-names input::placeholder { color: #9aa0a6; }
+.face-names button { margin-top: 2px; }
 .tile {
   position: relative;
   flex: 1 1 0;
