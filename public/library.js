@@ -9,6 +9,10 @@ const stopBtn = document.querySelector("#stop");
 const viewer = document.querySelector("#viewer");
 const viewerImg = document.querySelector("#viewer-img");
 const viewerCaption = document.querySelector("#viewer-caption");
+const scrubEl = document.querySelector("#scrub");
+const scrubTrack = document.querySelector("#scrub-track");
+const scrubLabel = document.querySelector("#scrub-label");
+let scrubTimer = 0;
 
 const state = {
   days: [],
@@ -64,8 +68,89 @@ function nest(days) {
   return years;
 }
 
+function renderScrub() {
+  const years = nest(state.days);
+  scrubTrack.replaceChildren();
+  if (years.length < 2 && years.reduce((sum, year) => sum + year.months.length, 0) < 2) {
+    scrubEl.classList.remove("show");
+    return;
+  }
+  years.forEach((year, index) => {
+    const span = Math.max(1, years.length - 1);
+    const top = years.length === 1 ? 50 : (index / span) * 100;
+    const button = h("button", { class: "scrub-year", type: "button", text: String(year.year) });
+    button.dataset.year = String(year.year);
+    button.style.top = `${top}%`;
+    button.addEventListener("click", () => jumpYear(year.year));
+    scrubTrack.append(button);
+    if (index === years.length - 1) return;
+    const mark = h("button", { class: "scrub-dot", type: "button" });
+    mark.style.top = `${(index + 0.5) / span * 100}%`;
+    mark.setAttribute("aria-label", `${year.year}年`);
+    mark.addEventListener("click", () => jumpYear(year.year));
+    scrubTrack.append(mark);
+  });
+}
+
+function visibleMonth() {
+  const edge = stageEl.getBoundingClientRect().top + 28;
+  const sections = [...mosaicEl.querySelectorAll(".month")];
+  let current = sections[0] || null;
+  for (const section of sections) {
+    if (section.getBoundingClientRect().top <= edge) current = section;
+  }
+  return current;
+}
+
+function placeScrubLabel() {
+  const section = visibleMonth();
+  if (!section) {
+    scrubLabel.hidden = true;
+    return;
+  }
+  const year = section.dataset.year;
+  const month = section.dataset.month;
+  for (const button of scrubTrack.querySelectorAll(".scrub-year")) {
+    button.classList.toggle("on", button.dataset.year === year);
+  }
+  const active = scrubTrack.querySelector(`.scrub-year[data-year="${year}"]`);
+  scrubLabel.hidden = false;
+  scrubLabel.textContent = `${year}年${Number(month)}月`;
+  if (active) {
+    const rail = scrubEl.getBoundingClientRect();
+    const box = active.getBoundingClientRect();
+    scrubLabel.style.top = `${box.top - rail.top + box.height / 2}px`;
+  }
+}
+
+function showScrub() {
+  if (!scrubTrack.childElementCount) return;
+  scrubEl.classList.add("show");
+  scrubEl.setAttribute("aria-hidden", "false");
+  placeScrubLabel();
+  clearTimeout(scrubTimer);
+  scrubTimer = setTimeout(() => {
+    if (scrubEl.matches(":hover")) return;
+    scrubEl.classList.remove("show");
+    scrubEl.setAttribute("aria-hidden", "true");
+  }, 2500);
+}
+
+function jumpYear(year, month = "") {
+  const section = month
+    ? document.getElementById(`m-${year}-${month}`)
+    : mosaicEl.querySelector(`.month[data-year="${year}"]`);
+  if (section && !state.year && !state.month && !state.day) {
+    section.scrollIntoView({ block: "start" });
+    showScrub();
+    return;
+  }
+  selectTime(year, month, "");
+}
+
 function renderTree() {
   const years = nest(state.days);
+  renderScrub();
   treeEl.replaceChildren();
   if (!years.length) {
     treeEl.append(h("p", { class: "hint", text: "扫描完成后，这里按拍摄时间列出。" }));
@@ -159,7 +244,8 @@ function renderMosaic() {
         index += 1;
       }
       const section = h("section", { class: "month", id: `m-${first.year}-${first.month}` });
-      const label = state.day ? `${first.year}年${first.month}月${first.day}日` : `${first.year}年${first.month}月`;
+      section.dataset.year = String(first.year);
+      section.dataset.month = String(first.month);
       const body = h("div", { class: "month-body" });
       for (let cursor = 0; cursor < group.length; cursor += size) {
         const slice = group.slice(cursor, cursor + size);
@@ -167,7 +253,7 @@ function renderMosaic() {
         slice.forEach((photo, offset) => row.append(makeTile(photo, start + cursor + offset, true)));
         body.append(row);
       }
-      section.append(body, h("div", { class: "month-head", text: label }));
+      section.append(body);
       mosaicEl.append(section);
     }
   if (!state.done) mosaicEl.append(h("div", { class: "more", text: state.loading ? "正在加载…" : "" }));
@@ -319,8 +405,11 @@ searchEl.addEventListener("input", () => {
   searchEl._timer = setTimeout(() => loadPhotos(true), 250);
 });
 stageEl.addEventListener("scroll", () => {
+  showScrub();
   if (stageEl.scrollTop + stageEl.clientHeight > stageEl.scrollHeight - 400) loadPhotos(false);
 });
+scrubEl.addEventListener("mouseenter", () => clearTimeout(scrubTimer));
+scrubEl.addEventListener("mouseleave", () => showScrub());
 window.addEventListener("resize", () => {
   clearTimeout(window._layout);
   window._layout = setTimeout(renderMosaic, 150);
