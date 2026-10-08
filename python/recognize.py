@@ -13,13 +13,17 @@ MODEL_DIR = ROOT / "data" / "models"
 YOLO_PATH = MODEL_DIR / "yolo11s.onnx"
 YOLO_URL = "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11s.onnx"
 ANIMAL = {14, 15, 16, 17, 18, 19, 20, 21, 22, 23}
+# 鸟、熊、象这些在溪水、石头和人身上经常误报。狗、猫、马、牛更可信。
+SUSPECT_ANIMAL = {14, 18, 20, 21, 22, 23}
+RELIABLE_ANIMAL = {15, 16, 17, 19}
 # 椅子、床、手机这些室内物体，以及车船，都不是风景。盆栽留在外面，花园仍可算风景。
 INDOOR = {56, 57, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79}
 VEHICLE = {1, 2, 3, 4, 5, 6, 7, 8}
 PERSON_SCORE = 0.25
-ANIMAL_SCORE = 0.55
+ANIMAL_SCORE = 0.75
 OBJECT_SCORE = 0.45
 PERSON_ANIMAL_OVERLAP = 0.45
+MIN_SUBJECT = 2500
 
 
 def load_rgb(path, limit):
@@ -58,6 +62,20 @@ def box_iou(left, right):
     return inter / union if union > 0 else 0.0
 
 
+def box_area(box):
+    return max(0.0, float(box[2])) * max(0.0, float(box[3]))
+
+
+def nms(found, limit=0.5):
+    ordered = sorted(found, key=lambda item: item[0], reverse=True)
+    kept = []
+    for score, kind, box in ordered:
+        if any(kind == old_kind and box_iou(box, old_box) >= limit for _score, old_kind, old_box in kept):
+            continue
+        kept.append((score, kind, box))
+    return kept
+
+
 def scene_labels(rgb, session):
     if session is None:
         return []
@@ -72,23 +90,33 @@ def scene_labels(rgb, session):
     pred = output[0]
     if pred.shape[0] < pred.shape[-1]:
         pred = pred.T
-    people = []
-    animals = []
+    raw = []
     blocked = False
     for row in pred:
         scores = row[4:]
         kind = int(scores.argmax())
         score = float(scores[kind])
         if kind == 0 and score >= PERSON_SCORE:
-            people.append(row[:4])
+            raw.append((score, kind, row[:4]))
         elif kind in ANIMAL and score >= ANIMAL_SCORE:
-            animals.append(row[:4])
+            raw.append((score, kind, row[:4]))
         elif (kind in VEHICLE or kind in INDOOR) and score >= OBJECT_SCORE:
             blocked = True
+    people = []
+    animals = []
+    for _score, kind, box in nms(raw):
+        if box_area(box) < MIN_SUBJECT:
+            continue
+        if kind == 0:
+            people.append(box)
+        elif kind in ANIMAL:
+            animals.append((kind, box))
     found = set()
     if people:
         found.add("person")
-    for box in animals:
+    for kind, box in animals:
+        if people and kind in SUSPECT_ANIMAL:
+            continue
         if any(box_iou(box, person) >= PERSON_ANIMAL_OVERLAP for person in people):
             continue
         found.add("animal")

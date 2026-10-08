@@ -71,7 +71,7 @@ function absorb(cluster, face) {
   recenter(cluster);
 }
 
-export function clusterPeople(faces, { largeAt = 80, high = 0.5, low = 0.32 } = {}) {
+export function clusterPeople(faces, { largeAt = 80, high = 0.5, low = 0.32, floor = 0.48 } = {}) {
   const clusters = [];
   for (const face of faces) {
     let best = -1;
@@ -118,7 +118,28 @@ export function clusterPeople(faces, { largeAt = 80, high = 0.5, low = 0.32 } = 
     clusters.splice(right, 1);
     merged = true;
   }
-  return clusters;
+  if (floor > 0) {
+    const loose = [];
+    for (let index = clusters.length - 1; index >= 0; index -= 1) {
+      const cluster = clusters[index];
+      if (cluster.members.length < 8) continue;
+      const stay = cluster.members.filter((face) => cosine(face.embedding, cluster.center) >= floor);
+      if (stay.length === cluster.members.length) continue;
+      loose.push(...cluster.members.filter((face) => cosine(face.embedding, cluster.center) < floor));
+      if (!stay.length) {
+        clusters.splice(index, 1);
+        continue;
+      }
+      cluster.members = stay;
+      cluster.sum = new Float64Array(stay[0].embedding.length);
+      for (const face of stay) {
+        for (let dim = 0; dim < cluster.sum.length; dim += 1) cluster.sum[dim] += face.embedding[dim];
+      }
+      recenter(cluster);
+    }
+    if (loose.length) clusters.push(...clusterPeople(loose, { largeAt, high: Math.max(high, floor), low: floor, floor: 0 }));
+  }
+  return clusters.filter((cluster) => cluster.members.length);
 }
 
 function firstAtOrAfter(shots, time) {
