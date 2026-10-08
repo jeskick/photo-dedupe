@@ -325,42 +325,36 @@ function paintPhotoStars(photo) {
   if (tileStars) paintStars(tileStars, rating);
 }
 
+const deleting = new Set();
+
 async function deletePhoto(photo) {
-  const ask = await fetch("/api/library/delete", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path: photo.path }),
-  });
-  const plan = await ask.json().catch(() => ({}));
-  if (!ask.ok) {
-    statusEl.textContent = plan.error || "无法删除";
-    return;
+  const key = photo.path.toLowerCase();
+  if (deleting.has(key)) return;
+  deleting.add(key);
+  try {
+    const response = await fetch("/api/library/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: photo.path, confirm: true }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      statusEl.textContent = data.error || "没能移入回收站";
+      return;
+    }
+    const gone = new Set((data.deleted || []).map((item) => item.toLowerCase()));
+    const openPath = state.open >= 0 ? state.photos[state.open]?.path : "";
+    state.photos = state.photos.filter((item) => !gone.has(item.path.toLowerCase()));
+    if (openPath && gone.has(openPath.toLowerCase())) closeViewer();
+    renderMosaic(true);
+    statusEl.textContent = gone.size > 1 ? "这两张已移入回收站。" : "已移入回收站。";
+    await loadTree();
+    await loadMarks();
+    await refreshQuiet();
+    if (!state.done && state.photos.length < 40) loadPhotos(false);
+  } finally {
+    deleting.delete(key);
   }
-  const names = (plan.paths || []).map((item) => item.split(/[/\\]/).pop());
-  const message = names.length > 1
-    ? `${names.join(" 和 ")} 是同一次拍摄的 CR2 和 JPG，会一起移入回收站。`
-    : `把「${photo.name}」移入回收站？`;
-  if (!window.confirm(message)) return;
-  const response = await fetch("/api/library/delete", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path: photo.path, confirm: true }),
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    statusEl.textContent = data.error || "没能移入回收站";
-    return;
-  }
-  const gone = new Set((data.deleted || []).map((item) => item.toLowerCase()));
-  const openPath = state.open >= 0 ? state.photos[state.open]?.path : "";
-  state.photos = state.photos.filter((item) => !gone.has(item.path.toLowerCase()));
-  if (openPath && gone.has(openPath.toLowerCase())) closeViewer();
-  renderMosaic(true);
-  statusEl.textContent = names.length > 1 ? "这两张已移入回收站。" : "已移入回收站。";
-  await loadTree();
-  await loadMarks();
-  await refreshQuiet();
-  if (!state.done && state.photos.length < 40) loadPhotos(false);
 }
 
 function clearImageSelect() {
