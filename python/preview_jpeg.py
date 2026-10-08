@@ -33,10 +33,17 @@ def main():
     image = load_image(sys.argv[1])
     if image is None:
         raise RuntimeError("无法读取画面")
+    edge = 1600
+    if len(sys.argv) > 2:
+        try:
+            edge = int(sys.argv[2])
+        except ValueError:
+            edge = 1600
+    edge = max(64, min(1600, edge))
     image = ImageOps.exif_transpose(image)
     if image.mode != "RGB":
         image = image.convert("RGB")
-    image.thumbnail((1600, 1600))
+    image.thumbnail((edge, edge))
     image.save(sys.stdout.buffer, format="JPEG", quality=82)
 
 

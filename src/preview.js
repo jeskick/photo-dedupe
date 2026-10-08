@@ -33,13 +33,14 @@ function remember(key, buffer) {
   }
 }
 
-export function renderPreviewJpeg(filePath, stamp) {
-  const key = `${filePath}\0${stamp || ""}`;
+export function renderPreviewJpeg(filePath, stamp, edge = 1600) {
+  const size = Math.max(64, Math.min(1600, Number(edge) || 1600));
+  const key = `${filePath}\0${stamp || ""}\0${size}`;
   const cached = cache.get(key);
   if (cached) return Promise.resolve(cached);
   const python = pythonExecutable();
   return takeSlot().then(() => new Promise((resolve, reject) => {
-    const child = spawn(python, [script, filePath], { windowsHide: true });
+    const child = spawn(python, [script, filePath, String(size)], { windowsHide: true });
     const chunks = [];
     const errors = [];
     let settled = false;

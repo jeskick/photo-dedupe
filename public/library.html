@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>照片</title>
+  <link rel="stylesheet" href="/library.css">
+</head>
+<body>
+  <aside class="nav">
+    <div class="brand">照片</div>
+    <button id="nav-all" class="nav-item on" type="button">
+      <span class="ico" aria-hidden="true"></span>
+      照片
+    </button>
+    <div class="nav-label">时间</div>
+    <div id="tree" class="tree"></div>
+    <div class="nav-foot">
+      <p id="count">还没有照片</p>
+      <button id="scan" type="button">扫描全部磁盘</button>
+      <button id="stop" class="quiet" type="button" hidden>停止</button>
+      <p id="scan-status" class="hint"></p>
+    </div>
+  </aside>
+  <div class="main">
+    <header class="top">
+      <input id="search" type="search" placeholder="搜索文件名" aria-label="搜索文件名">
+    </header>
+    <div id="stage" class="stage">
+      <div id="mosaic" class="mosaic"></div>
+    </div>
+  </div>
+  <div id="viewer" class="viewer" hidden>
+    <div class="viewer-bar">
+      <button id="viewer-close" class="quiet" type="button">关闭</button>
+      <div id="viewer-caption"></div>
+      <button id="viewer-open" class="quiet" type="button">打开所在文件夹</button>
+    </div>
+    <div class="viewer-stage">
+      <button id="viewer-prev" class="quiet edge" type="button" aria-label="上一张">‹</button>
+      <img id="viewer-img" alt="">
+      <button id="viewer-next" class="quiet edge" type="button" aria-label="下一张">›</button>
+    </div>
+  </div>
+  <script src="/library.js"></script>
+</body>
+</html>

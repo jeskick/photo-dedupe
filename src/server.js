@@ -8,10 +8,117 @@ import { extensionsFor } from "./extensions.js";
 import { applyDeletions } from "./delete.js";
 import { pickFolders, revealPath } from "./picker.js";
 import { renderPreviewJpeg } from "./preview.js";
+import { listDrives } from "./library-scan.js";
+import { libraryCount, libraryMeta, libraryPhoto, libraryTree, openLibrary, purgeScan, queryPhotos, setLibraryMeta, upsertPhotos } from "./library-db.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, "..", "public");
+const libraryDbPath = process.env.LIBRARY_DB || path.join(here, "..", "data", "library.sqlite");
 const jobs = new Map();
+let libraryDb = null;
+let libraryJob = null;
+
+function photosDb() {
+  if (!libraryDb) libraryDb = openLibrary(libraryDbPath);
+  return libraryDb;
+}
+
+function libraryState() {
+  const db = photosDb();
+  const meta = libraryMeta(db);
+  let summary = null;
+  try {
+    summary = meta.summary ? JSON.parse(meta.summary) : null;
+  } catch {
+    summary = null;
+  }
+  return {
+    total: libraryCount(db),
+    scanning: Boolean(libraryJob),
+    progress: libraryJob?.progress || null,
+    summary,
+  };
+}
+
+function emitLibrary(event, data, done = false) {
+  if (!libraryJob) return;
+  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const res of libraryJob.listeners) {
+    res.write(payload);
+    if (done) res.end();
+  }
+  if (done) libraryJob.listeners.clear();
+}
+
+function finishLibrary(status, summary) {
+  const job = libraryJob;
+  if (!job || job.settled) return;
+  job.settled = true;
+  if (status === "done") {
+    purgeScan(photosDb(), job.scanId);
+    const saved = {
+      finishedAt: Date.now(),
+      files: summary?.files || 0,
+      dirs: summary?.dirs || 0,
+      softwareSkipped: summary?.softwareSkipped || 0,
+      roots: job.roots,
+    };
+    setLibraryMeta(photosDb(), "summary", JSON.stringify(saved));
+    emitLibrary("done", { ...saved, total: libraryCount(photosDb()) }, true);
+  } else if (status === "cancelled") {
+    emitLibrary("cancelled", { total: libraryCount(photosDb()) }, true);
+  } else {
+    emitLibrary("failed", { error: summary?.error || "扫描失败" }, true);
+  }
+  libraryJob = null;
+}
+
+function startLibraryScan() {
+  if (runningJob() || libraryJob) {
+    const error = new Error("已有扫描在进行，请先停止或等待结束");
+    error.status = 409;
+    throw error;
+  }
+  const roots = listDrives();
+  if (!roots.length) {
+    const error = new Error("没有找到可以扫描的磁盘");
+    error.status = 400;
+    throw error;
+  }
+  const sab = new SharedArrayBuffer(4);
+  const flag = new Int32Array(sab);
+  const scanId = Date.now();
+  libraryJob = {
+    worker: null,
+    flag,
+    scanId,
+    roots,
+    listeners: new Set(),
+    settled: false,
+    progress: { phase: "正在扫描全部磁盘", dirs: 0, files: 0, softwareSkipped: 0 },
+  };
+  const worker = new Worker(new URL("./library-worker.js", import.meta.url), {
+    workerData: { roots, sab, scanId },
+  });
+  libraryJob.worker = worker;
+  worker.on("message", (message) => {
+    if (!libraryJob || libraryJob.worker !== worker) return;
+    if (message.type === "batch") {
+      upsertPhotos(photosDb(), message.files || [], scanId);
+      return;
+    }
+    if (message.type === "progress") {
+      libraryJob.progress = { phase: "正在扫描全部磁盘", ...message.progress };
+      emitLibrary("progress", libraryJob.progress);
+      return;
+    }
+    if (message.type === "done") finishLibrary("done", message.summary);
+    else if (message.type === "cancelled") finishLibrary("cancelled", message.summary);
+    else if (message.type === "failed") finishLibrary("failed", { error: message.message });
+  });
+  worker.on("error", (error) => finishLibrary("failed", { error: error.message || "扫描失败" }));
+  return { roots, scanId };
+}
 
 const TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -97,7 +204,7 @@ function cancelJob(job) {
 }
 
 function startJob(body) {
-  const running = Boolean(runningJob());
+  const running = Boolean(runningJob()) || Boolean(libraryJob);
   if (running) {
     const error = new Error("已有扫描在进行，请先停止或等待结束");
     error.status = 409;
@@ -428,10 +535,93 @@ async function handle(req, res) {
       }
     }
 
+    if (req.method === "GET" && url.pathname === "/api/library/state") {
+      sendJson(res, 200, libraryState());
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/library/tree") {
+      sendJson(res, 200, { days: libraryTree(photosDb()) });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/library/photos") {
+      const photos = queryPhotos(photosDb(), {
+        year: url.searchParams.get("year"),
+        month: url.searchParams.get("month"),
+        day: url.searchParams.get("day"),
+        q: url.searchParams.get("q"),
+        offset: url.searchParams.get("offset"),
+        limit: url.searchParams.get("limit"),
+      });
+      sendJson(res, 200, { photos });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/library/scan") {
+      const started = startLibraryScan();
+      sendJson(res, 200, started);
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/library/cancel") {
+      if (libraryJob) {
+        Atomics.store(libraryJob.flag, 0, 1);
+        setTimeout(() => libraryJob?.worker?.terminate(), 1500);
+      }
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/library/events") {
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-store",
+        Connection: "keep-alive",
+        "X-Content-Type-Options": "nosniff",
+      });
+      if (!libraryJob) {
+        res.write(`event: idle\ndata: ${JSON.stringify(libraryState())}\n\n`);
+        res.end();
+        return;
+      }
+      libraryJob.listeners.add(res);
+      res.write(`event: progress\ndata: ${JSON.stringify(libraryJob.progress)}\n\n`);
+      const timer = setInterval(() => res.write(": ping\n\n"), 15000);
+      res.on("close", () => {
+        clearInterval(timer);
+        libraryJob?.listeners.delete(res);
+      });
+      return;
+    }
+
+    if (req.method === "GET" && (url.pathname === "/api/library/thumb" || url.pathname === "/api/library/view")) {
+      const photo = libraryPhoto(photosDb(), path.resolve(String(url.searchParams.get("path") || "")));
+      if (!photo || !fs.existsSync(photo.path)) {
+        sendJson(res, 404, { error: "照片不在库里" });
+        return;
+      }
+      const edge = url.pathname.endsWith("/view") ? 1600 : 480;
+      try {
+        const jpeg = await renderPreviewJpeg(photo.path, `${photo.size}:${photo.mtimeMs}`, edge);
+        res.writeHead(200, {
+          "Content-Type": "image/jpeg",
+          "Content-Length": jpeg.length,
+          "Cache-Control": "private, max-age=86400",
+          "X-Content-Type-Options": "nosniff",
+        });
+        res.end(jpeg);
+      } catch {
+        sendJson(res, 422, { error: "这张预览打不开" });
+      }
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/reveal") {
       const body = await readBody(req);
       const target = path.resolve(String(body.path || ""));
-      const allowed = [...jobs.values()].some((job) => job.fileIndex.has(target.toLowerCase()));
+      const allowed = [...jobs.values()].some((job) => job.fileIndex.has(target.toLowerCase()))
+        || Boolean(libraryPhoto(photosDb(), target));
       if (!allowed) {
         sendJson(res, 404, { error: "只能打开本次扫描到的文件" });
         return;

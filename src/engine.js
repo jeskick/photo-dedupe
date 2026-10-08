@@ -47,7 +47,7 @@ function hashFile(filePath, isCancelled, onBytes) {
   });
 }
 
-function walkMedia(roots, extensions, isCancelled, onFile, onProgress) {
+export function walkMedia(roots, extensions, isCancelled, onFile, onProgress) {
   const stack = [...roots];
   const seen = new Set();
   const errors = [];
