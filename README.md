@@ -9,7 +9,7 @@
 - Node.js 20 或更新版本：https://nodejs.org/
 - Python 3.12：https://www.python.org/downloads/
 
-Python 用来做画面相似比对，以及 HEIC、TIFF、RAW 的预览。没有 Python 时，字节完全相同的重复文件仍然可以查重。
+Python 用来做画面相似比对，以及 HEIC、TIFF、RAW 的预览。没有 Python 时，字节完全相同的重复文件仍然可以查重。不要安装免 GIL 的 Python（名称里带 free-threading 或 `3.13t`），那些预编译库装不上。
 
 不需要额外安装 npm 包。
 
