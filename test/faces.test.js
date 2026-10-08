@@ -21,12 +21,14 @@ test("相似的脸用同一个名字，差得远的不会带上", () => {
 test("零碎的脸并进最近的人，两个主要的人不会并成一个", () => {
   const personA = Array.from({ length: 8 }, (_, index) => ({ id: index + 1, embedding: [1, 0, 0] }));
   const personB = Array.from({ length: 8 }, (_, index) => ({ id: index + 9, embedding: [0, 1, 0] }));
-  const fragment = { id: 20, embedding: [0.22, 0, 0.975] };
-  const groups = clusterPeople([...personA, ...personB, fragment]);
-  assert.equal(groups.length, 2);
+  const near = { id: 20, embedding: [0.4, 0, Math.sqrt(0.84)] };
+  const far = { id: 21, embedding: [0.2, 0, Math.sqrt(0.96)] };
+  const groups = clusterPeople([...personA, ...personB, near, far]);
+  assert.equal(groups.length, 3);
   const joined = groups.find((group) => group.members.some((face) => face.id === 20));
   assert.equal(joined.members.some((face) => face.id === 1), true);
   assert.equal(joined.members.some((face) => face.id === 9), false);
+  assert.equal(joined.members.some((face) => face.id === 21), false);
 });
 
 test("同一段时间里的背影会跟着唯一的人，两个人都在时不乱标", () => {

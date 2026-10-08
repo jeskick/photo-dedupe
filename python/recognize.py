@@ -10,9 +10,16 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 MODEL_DIR = ROOT / "data" / "models"
-YOLO_PATH = MODEL_DIR / "yolov8n.onnx"
-YOLO_URL = "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolov8n.onnx"
+YOLO_PATH = MODEL_DIR / "yolo11s.onnx"
+YOLO_URL = "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11s.onnx"
 ANIMAL = {14, 15, 16, 17, 18, 19, 20, 21, 22, 23}
+# 椅子、床、手机这些室内物体，以及车船，都不是风景。盆栽留在外面，花园仍可算风景。
+INDOOR = {56, 57, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79}
+VEHICLE = {1, 2, 3, 4, 5, 6, 7, 8}
+PERSON_SCORE = 0.25
+ANIMAL_SCORE = 0.55
+OBJECT_SCORE = 0.45
+PERSON_ANIMAL_OVERLAP = 0.45
 
 
 def load_rgb(path, limit):
@@ -37,6 +44,20 @@ def ensure_yolo():
     return YOLO_PATH.exists() and YOLO_PATH.stat().st_size > 1000000
 
 
+def box_iou(left, right):
+    def edges(box):
+        cx, cy, width, height = (float(value) for value in box)
+        return cx - width / 2, cy - height / 2, cx + width / 2, cy + height / 2
+
+    ax1, ay1, ax2, ay2 = edges(left)
+    bx1, by1, bx2, by2 = edges(right)
+    overlap_w = max(0.0, min(ax2, bx2) - max(ax1, bx1))
+    overlap_h = max(0.0, min(ay2, by2) - max(ay1, by1))
+    inter = overlap_w * overlap_h
+    union = max(0.0, float(left[2])) * max(0.0, float(left[3])) + max(0.0, float(right[2])) * max(0.0, float(right[3])) - inter
+    return inter / union if union > 0 else 0.0
+
+
 def scene_labels(rgb, session):
     if session is None:
         return []
@@ -51,16 +72,28 @@ def scene_labels(rgb, session):
     pred = output[0]
     if pred.shape[0] < pred.shape[-1]:
         pred = pred.T
-    found = set()
+    people = []
+    animals = []
+    blocked = False
     for row in pred:
         scores = row[4:]
         kind = int(scores.argmax())
         score = float(scores[kind])
-        if kind == 0 and score >= 0.30:
-            found.add("person")
-        elif kind in ANIMAL and score >= 0.45:
-            found.add("animal")
-    if "person" not in found:
+        if kind == 0 and score >= PERSON_SCORE:
+            people.append(row[:4])
+        elif kind in ANIMAL and score >= ANIMAL_SCORE:
+            animals.append(row[:4])
+        elif (kind in VEHICLE or kind in INDOOR) and score >= OBJECT_SCORE:
+            blocked = True
+    found = set()
+    if people:
+        found.add("person")
+    for box in animals:
+        if any(box_iou(box, person) >= PERSON_ANIMAL_OVERLAP for person in people):
+            continue
+        found.add("animal")
+        break
+    if not found and not blocked:
         found.add("landscape")
     return sorted(found)
 

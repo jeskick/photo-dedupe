@@ -846,8 +846,17 @@ function renderMarks() {
   }
   const names = document.querySelector("#names");
   names.replaceChildren();
+  const people = state.marks.people || [];
+  const visible = people.some((item) => item.count >= 8) ? people.filter((item) => item.count >= 8) : people;
+  const hidden = people.length - visible.length;
+  const peopleNote = document.querySelector("#people-note");
+  if (peopleNote) {
+    peopleNote.textContent = hidden
+      ? `下面每一行是不同的人，点一行只看这一个人。还有 ${hidden} 组只有几张，先不铺开。`
+      : "下面每一行是不同的人。点一行只看这一个人，再起名。";
+  }
   let unnamed = 0;
-  for (const item of state.marks.people || []) {
+  for (const item of visible) {
     const title = item.name || `人物 ${++unnamed}`;
     const button = h("button", { type: "button", text: `${title} · ${item.count}` });
     button.classList.toggle("on", String(state.personId) === String(item.id));

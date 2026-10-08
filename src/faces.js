@@ -71,14 +71,15 @@ function absorb(cluster, face) {
   recenter(cluster);
 }
 
-export function clusterPeople(faces, { largeAt = 8, high = 0.4, low = 0.2 } = {}) {
+export function clusterPeople(faces, { largeAt = 80, high = 0.5, low = 0.32 } = {}) {
   const clusters = [];
   for (const face of faces) {
     let best = -1;
     let chosen = -1;
     for (let index = 0; index < clusters.length; index += 1) {
       const value = cosine(face.embedding, clusters[index].center);
-      if (value >= low && value > best) {
+      const need = clusters[index].members.length >= largeAt ? high : low;
+      if (value >= need && value > best) {
         best = value;
         chosen = index;
       }
@@ -100,7 +101,7 @@ export function clusterPeople(faces, { largeAt = 8, high = 0.4, low = 0.2 } = {}
     for (let a = 0; a < clusters.length; a += 1) {
       for (let b = a + 1; b < clusters.length; b += 1) {
         const value = cosine(clusters[a].center, clusters[b].center);
-        const need = Math.min(clusters[a].members.length, clusters[b].members.length) >= largeAt ? high : low;
+        const need = Math.max(clusters[a].members.length, clusters[b].members.length) >= largeAt ? high : low;
         if (value >= need && value > best) {
           best = value;
           left = a;
