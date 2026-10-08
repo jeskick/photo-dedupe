@@ -1023,18 +1023,30 @@ viewer.addEventListener("wheel", (event) => {
   applyZoom();
 }, { passive: false });
 let pan = null;
+function endPan() {
+  pan = null;
+  viewerImg.classList.remove("panning");
+}
+viewerImg.addEventListener("dragstart", (event) => event.preventDefault());
 viewerImg.addEventListener("pointerdown", (event) => {
   if (viewScale <= 1 || event.button !== 0) return;
+  event.preventDefault();
   pan = { x: event.clientX, y: event.clientY, ox: viewX, oy: viewY };
-  viewerImg.setPointerCapture(event.pointerId);
+  viewerImg.classList.add("panning");
+  try { viewerImg.setPointerCapture(event.pointerId); } catch { /* 没有真实指针时忽略 */ }
 });
 viewerImg.addEventListener("pointermove", (event) => {
   if (!pan) return;
+  if ((event.buttons & 1) === 0) {
+    endPan();
+    return;
+  }
   viewX = pan.ox + event.clientX - pan.x;
   viewY = pan.oy + event.clientY - pan.y;
   applyZoom();
 });
-viewerImg.addEventListener("pointerup", () => { pan = null; });
+viewerImg.addEventListener("pointerup", endPan);
+viewerImg.addEventListener("pointercancel", endPan);
 scanBtn.addEventListener("click", async () => {
   scanBtn.disabled = true;
   const response = await fetch("/api/library/scan", {
