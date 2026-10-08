@@ -78,14 +78,14 @@ test("区分相机和手机，排除目录不会误伤相邻文件夹", () => {
   fs.mkdirSync(sibling);
   assert.equal(isExcludedDir(path.join(root, "child"), [root]), true);
   assert.equal(isExcludedDir(sibling, [root]), false);
-  assert.equal(passesMinEdge(640, 480, 800), false);
-  assert.equal(passesMinEdge(1920, 1080, 800), true);
-  assert.equal(passesMinEdge(0, 0, 2000), true);
+  assert.equal(passesMinEdge(200, 150, 240), false);
+  assert.equal(passesMinEdge(640, 480, 240), true);
+  assert.equal(passesMinEdge(0, 0, 480), true);
 
   const db = openLibrary(path.join(root, "library.sqlite"));
-  const saved = saveLibrarySettings(db, { excludeDirs: [root], minEdgePhoto: 1200, minEdgeVideo: 480 });
-  assert.equal(saved.minEdgePhoto, 1200);
-  assert.equal(saved.minEdgeVideo, 480);
+  const saved = saveLibrarySettings(db, { excludeDirs: [root], minEdgePhoto: 360, minEdgeVideo: 240 });
+  assert.equal(saved.minEdgePhoto, 360);
+  assert.equal(saved.minEdgeVideo, 240);
   assert.equal(saved.excludeDirs[0].toLowerCase(), path.resolve(root).toLowerCase());
   assert.deepEqual(librarySettings(db).excludeDirs, saved.excludeDirs);
   const base = { size: 10, mtimeMs: 1, captureMs: 1, year: 2024, month: 1, day: 2, width: 100, height: 100 };

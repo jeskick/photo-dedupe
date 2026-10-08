@@ -127,7 +127,7 @@ export function libraryPhoto(db, filePath) {
   return db.prepare("SELECT path, name, ext, dir, size, mtime_ms AS mtimeMs, capture_ms AS captureMs, year, month, day, rating, kind, origin, width, height FROM photos WHERE path = ?").get(filePath) || null;
 }
 
-const MIN_EDGES = new Set([0, 480, 800, 1200, 2000]);
+const MIN_EDGES = new Set([0, 120, 240, 360, 480]);
 
 export function librarySettings(db) {
   let parsed = {};
