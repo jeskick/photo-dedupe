@@ -283,6 +283,24 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 }
 .tile { cursor: pointer; -webkit-user-select: none; user-select: none; }
 .tile img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; -webkit-user-select: none; user-select: none; }
+.tile-meta {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  transform: translateX(-50%);
+  z-index: 1;
+  max-width: calc(100% - 12px);
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
 .tile-tools {
   position: absolute;
   top: 6px;

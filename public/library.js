@@ -372,6 +372,26 @@ function blockImageSelect(element) {
   });
 }
 
+function compactSize(bytes) {
+  const n = Number(bytes) || 0;
+  const kb = 1024;
+  const mb = kb * 1024;
+  const gb = mb * 1024;
+  const text = (value, unit) => `${value >= 10 ? Math.round(value) : Math.round(value * 10) / 10}${unit}`;
+  if (n >= gb) return text(n / gb, "GB");
+  if (n >= mb) return text(n / mb, "MB");
+  if (n >= kb) return `${Math.max(1, Math.round(n / kb))}KB`;
+  return `${n}B`;
+}
+
+function photoFacts(photo) {
+  const width = Number(photo.width) || 0;
+  const height = Number(photo.height) || 0;
+  const pixels = width > 0 && height > 0 ? `${width}*${height}` : "";
+  const size = compactSize(photo.size);
+  return pixels ? `${pixels}  ${size}` : size;
+}
+
 function naturalWidth(photo) {
   const height = rowHeight();
   const w = Number(photo.width) || 0;
@@ -454,7 +474,8 @@ function makeTile(photo, index) {
     event.preventDefault();
     event.stopPropagation();
   });
-  tile.append(visual, tools);
+  const facts = h("div", { class: "tile-meta", text: photoFacts(photo) });
+  tile.append(visual, facts, tools);
   blockImageSelect(tile);
   let timer = 0;
   tile.addEventListener("click", () => {
@@ -889,7 +910,7 @@ function renderMarks() {
   const main = crowded ? titled.filter((row) => row.item.count >= 8) : titled;
   const rest = crowded ? titled.filter((row) => row.item.count < 8) : [];
   const peopleNote = document.querySelector("#people-note");
-  if (peopleNote) peopleNote.textContent = "下面每一行是不同的人，点一行只看这一个人。";
+  if (peopleNote) peopleNote.textContent = "每一行是不同的人";
   const addPerson = (row) => {
     const button = h("button", { type: "button", text: `${row.title} · ${row.item.count}` });
     button.classList.toggle("on", String(state.personId) === String(row.item.id));

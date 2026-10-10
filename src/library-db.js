@@ -332,7 +332,7 @@ export function queryPhotos(db, filter = {}) {
   const offset = Math.max(0, Number(filter.offset) || 0);
   params.push(limit, offset);
   const sql = `
-    SELECT path, name, ext, dir, capture_ms AS captureMs, year, month, day, rating, kind, origin, width, height
+    SELECT path, name, ext, dir, size, capture_ms AS captureMs, year, month, day, rating, kind, origin, width, height
     FROM photos
     ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
     ORDER BY capture_ms DESC, path COLLATE NOCASE
