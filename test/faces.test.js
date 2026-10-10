@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { bestName, bestPerson, clusterPeople, facesToRename, linkBackViews } from "../src/faces.js";
-import { libraryMarks, libraryPhoto, loadPeople, openLibrary, photoFaces, purgeScan, queryPhotos, removePhotos, renameFace, saveRecognition, setRating, upsertPhotos } from "../src/library-db.js";
+import { bestName, bestPerson, clusterPeople, facesToRename, linkBackViews, mainSubjects } from "../src/faces.js";
+import { fileIsGone, forgetMissingPhotos, libraryMarks, libraryPhoto, loadPeople, openLibrary, photoFaces, purgeScan, queryPhotos, removePhotos, renameFace, saveRecognition, setRating, upsertPhotos } from "../src/library-db.js";
 
 test("相似的脸用同一个名字，差得远的不会带上", () => {
   const named = [{ name: "小明", embedding: [1, 0, 0] }];
@@ -16,6 +16,60 @@ test("相似的脸用同一个名字，差得远的不会带上", () => {
   const faces = [target, { id: 2, embedding: [0.98, 0.02, 0] }, { id: 3, embedding: [0, 1, 0] }];
   assert.deepEqual(facesToRename(target, faces, "小明").map((item) => item.id), [1, 2]);
   assert.deepEqual(facesToRename(target, faces, "  "), [{ id: 1, name: "" }]);
+});
+
+test("同一张照片里同一个人只留最大的脸，另一个人仍保留", () => {
+  const small = { embedding: [1, 0, 0], area: 100 };
+  const largeSame = { embedding: [0.99, 0.1, 0], area: 4000 };
+  const other = { embedding: [0, 1, 0], area: 3000 };
+  const kept = mainSubjects([small, other, largeSame]);
+  assert.deepEqual(kept.map((face) => face.area), [4000, 3000]);
+});
+
+test("保存识别时同一个人只记最大的脸", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "photo-main-"));
+  const db = openLibrary(path.join(dir, "library.sqlite"));
+  const photo = path.join(dir, "a.jpg");
+  saveRecognition(db, photo, [
+    { embedding: [1, 0, 0], area: 10 },
+    { embedding: [0.99, 0.1, 0], area: 500 },
+    { embedding: [0, 1, 0], area: 400 },
+  ], ["person"], []);
+  assert.equal(photoFaces(db, photo).length, 2);
+  db.close();
+});
+
+test("原位置已经没有、磁盘还在的照片会从库里去掉", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "photo-missing-"));
+  const db = openLibrary(path.join(dir, "library.sqlite"));
+  const gone = path.join(dir, "gone.jpg");
+  const kept = path.join(dir, "kept.jpg");
+  fs.writeFileSync(kept, "jpeg");
+  const base = {
+    ext: ".jpg",
+    size: 1,
+    mtimeMs: 1,
+    captureMs: 1,
+    year: 2020,
+    month: 1,
+    day: 2,
+    kind: "photo",
+    width: 800,
+    height: 600,
+    dir,
+  };
+  upsertPhotos(db, [
+    { ...base, path: gone, name: "gone.jpg" },
+    { ...base, path: kept, name: "kept.jpg" },
+  ], 1);
+  assert.equal(fileIsGone(gone), true);
+  assert.equal(fileIsGone(kept), false);
+  assert.equal(fileIsGone("Z:\\missing\\a.jpg"), false);
+  const removed = forgetMissingPhotos(db, [gone, kept, gone]);
+  assert.deepEqual(removed, [gone]);
+  assert.equal(libraryPhoto(db, gone), null);
+  assert.equal(libraryPhoto(db, kept).name, "kept.jpg");
+  db.close();
 });
 
 test("差得远的脸会从已经成组的人里拆出去", () => {

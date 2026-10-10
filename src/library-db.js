@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { bestPerson, bufferFromEmbedding, clusterPeople, embeddingFromBuffer, FACE_MODEL, linkBackViews } from "./faces.js";
+import { bestPerson, bufferFromEmbedding, clusterPeople, embeddingFromBuffer, FACE_MODEL, linkBackViews, mainSubjects } from "./faces.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS photos (
@@ -365,10 +365,47 @@ export function libraryPhotoPaths(db) {
   return db.prepare("SELECT path FROM photos WHERE kind = 'photo' ORDER BY capture_ms DESC").all().map((row) => row.path);
 }
 
+export function fileIsGone(filePath) {
+  try {
+    fs.statSync(filePath);
+    return false;
+  } catch (error) {
+    if (error.code !== "ENOENT") return false;
+  }
+  const root = path.parse(filePath).root;
+  if (!root) return false;
+  try {
+    fs.statSync(root);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function forgetMissingPhotos(db, paths) {
+  const removed = [];
+  const seen = new Set();
+  for (const raw of paths || []) {
+    const photo = libraryPhoto(db, path.resolve(String(raw || "")));
+    if (!photo || seen.has(photo.path.toLowerCase())) continue;
+    seen.add(photo.path.toLowerCase());
+    if (!fileIsGone(photo.path)) continue;
+    removed.push(photo.path);
+  }
+  if (removed.length) removePhotos(db, removed);
+  return removed;
+}
+
+function faceInput(item) {
+  if (Array.isArray(item)) return { embedding: Float32Array.from(item), area: 0 };
+  if (!Array.isArray(item?.embedding)) return null;
+  return { embedding: Float32Array.from(item.embedding), area: Number(item.area) || 0 };
+}
+
 export function saveRecognition(db, filePath, embeddings, labels, people = []) {
   const cleanLabels = [...new Set((labels || []).filter((item) => SCENE.has(item)))];
-  const faces = (embeddings || []).map((item) => {
-    const values = Float32Array.from(item);
+  const faces = mainSubjects((embeddings || []).map(faceInput).filter(Boolean)).map((face) => {
+    const values = face.embedding;
     const known = bestPerson(values, people);
     if (known) return { values, personId: known.id, name: known.name || "" };
     return { values, personId: 0, name: "" };

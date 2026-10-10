@@ -15,6 +15,19 @@ export function cosine(left, right) {
   return dot / Math.sqrt(leftNorm * rightNorm);
 }
 
+export function mainSubjects(faces, threshold = SAME_PERSON) {
+  const ranked = (faces || [])
+    .map((face) => ({ embedding: face.embedding, area: Number(face.area) || 0 }))
+    .filter((face) => face.embedding?.length)
+    .sort((left, right) => right.area - left.area);
+  const kept = [];
+  for (const face of ranked) {
+    if (kept.some((item) => cosine(face.embedding, item.embedding) >= threshold)) continue;
+    kept.push(face);
+  }
+  return kept;
+}
+
 export function bestPerson(embedding, people, threshold = SAME_PERSON) {
   let found = null;
   let score = threshold;

@@ -173,7 +173,16 @@ def main():
             rgb = load_rgb(path, 1280)
             bgr = cv2.cvtColor(np.asarray(rgb), cv2.COLOR_RGB2BGR)
             detected = faces_app.get(bgr)
-            embeddings = [face.normed_embedding.astype(np.float32).tolist() for face in detected]
+            embeddings = []
+            for face in detected:
+                box = getattr(face, "bbox", None)
+                area = 0.0
+                if box is not None and len(box) >= 4:
+                    area = max(0.0, float(box[2]) - float(box[0])) * max(0.0, float(box[3]) - float(box[1]))
+                embeddings.append({
+                    "embedding": face.normed_embedding.astype(np.float32).tolist(),
+                    "area": area,
+                })
             kept = [item for item in labels if item != "landscape"]
             if "person" not in kept:
                 kept.append("person")

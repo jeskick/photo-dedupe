@@ -11,7 +11,7 @@ import { applyDeletions } from "./delete.js";
 import { pickFolders, recyclePaths, revealPath } from "./picker.js";
 import { renderPreviewJpeg, renderVideoFrame } from "./preview.js";
 import { listDrives, pairedCameraPaths } from "./library-scan.js";
-import { ensurePeopleClusters, libraryCount, libraryKindTotals, libraryMarks, libraryMeta, libraryPhoto, libraryPhotoPaths, librarySettings, libraryTree, loadPeople, openLibrary, photoFaces, prepareRecognition, purgeScan, queryPhotos, removePhotos, renameFace, renamePerson, saveLibrarySettings, saveRecognition, setLibraryMeta, setRating, upsertPhotos } from "./library-db.js";
+import { ensurePeopleClusters, forgetMissingPhotos, libraryCount, libraryKindTotals, libraryMarks, libraryMeta, libraryPhoto, libraryPhotoPaths, librarySettings, libraryTree, loadPeople, openLibrary, photoFaces, prepareRecognition, purgeScan, queryPhotos, removePhotos, renameFace, renamePerson, saveLibrarySettings, saveRecognition, setLibraryMeta, setRating, upsertPhotos } from "./library-db.js";
 import { describePhoto, readPhotoFacts } from "./photo-info.js";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, "..", "public");
@@ -950,6 +950,10 @@ async function handle(req, res) {
     if (req.method === "GET" && url.pathname === "/api/library/media") {
       const photo = libraryPhoto(photosDb(), path.resolve(String(url.searchParams.get("path") || "")));
       const type = VIDEO_TYPES[String(photo?.ext || "").toLowerCase()];
+      if (photo && forgetMissingPhotos(photosDb(), [photo.path]).length) {
+        sendJson(res, 404, { error: "文件已经不在原处", missing: true });
+        return;
+      }
       if (!photo || photo.kind !== "video" || !type || !fs.existsSync(photo.path)) {
         sendJson(res, 404, { error: "视频不在库里" });
         return;
@@ -971,6 +975,10 @@ async function handle(req, res) {
 
     if (req.method === "GET" && (url.pathname === "/api/library/thumb" || url.pathname === "/api/library/view")) {
       const photo = libraryPhoto(photosDb(), path.resolve(String(url.searchParams.get("path") || "")));
+      if (photo && forgetMissingPhotos(photosDb(), [photo.path]).length) {
+        sendJson(res, 404, { error: "文件已经不在原处", missing: true });
+        return;
+      }
       if (!photo || !fs.existsSync(photo.path)) {
         sendJson(res, 404, { error: "照片不在库里" });
         return;

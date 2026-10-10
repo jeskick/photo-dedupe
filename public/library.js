@@ -334,6 +334,41 @@ function paintPhotoStars(photo) {
 }
 
 const deleting = new Set();
+const missingPaths = new Set();
+let missingTimer = 0;
+
+function notePreviewMiss(photo, url, onBroken) {
+  const key = photo.path.toLowerCase();
+  if (missingPaths.has(key) || deleting.has(key)) return;
+  fetch(url).then((response) => {
+    if (response.status === 404) queueMissing(photo);
+    else onBroken();
+  }).catch(() => onBroken());
+}
+
+function queueMissing(photo) {
+  missingPaths.add(photo.path.toLowerCase());
+  clearTimeout(missingTimer);
+  missingTimer = setTimeout(flushMissing, 250);
+}
+
+function flushMissing() {
+  const gone = new Set(missingPaths);
+  missingPaths.clear();
+  if (!gone.size) return;
+  const openPath = state.open >= 0 ? state.photos[state.open]?.path : "";
+  state.photos = state.photos.filter((item) => !gone.has(item.path.toLowerCase()));
+  if (openPath && gone.has(openPath.toLowerCase())) closeViewer();
+  else if (openPath) state.open = state.photos.findIndex((item) => item.path === openPath);
+  renderMosaic(true);
+  statusEl.textContent = gone.size > 1
+    ? `已去掉 ${gone.size} 张原位置已经没有的照片。`
+    : "原位置已经没有的照片已从库里去掉。";
+  loadTree();
+  loadMarks();
+  refreshQuiet();
+  if (!state.done && state.photos.length < 40) loadPhotos(false);
+}
 
 async function deletePhoto(photo) {
   const key = photo.path.toLowerCase();
@@ -446,11 +481,13 @@ function makeTile(photo) {
   const visual = h("img", { alt: photo.name, loading: "lazy" });
   visual.src = `/api/library/thumb?path=${encodeURIComponent(photo.path)}`;
   visual.addEventListener("error", () => {
-    if (state.kind !== "video") {
-      tile.classList.add("broken");
-      return;
-    }
-    visual.replaceWith(h("div", { class: "video-fallback", text: String(photo.ext || "视频").replace(/^\./, "").toUpperCase() }));
+    notePreviewMiss(photo, visual.src, () => {
+      if (state.kind !== "video") {
+        tile.classList.add("broken");
+        return;
+      }
+      visual.replaceWith(h("div", { class: "video-fallback", text: String(photo.ext || "视频").replace(/^\./, "").toUpperCase() }));
+    });
   });
   const tools = h("div", { class: "tile-tools" });
   const rate = h("div", { class: "rate" });
@@ -731,6 +768,12 @@ function openViewer(index) {
     viewerImg.removeAttribute("src");
     viewerVideo.hidden = false;
     viewerVideo.src = `/api/library/media?path=${encodeURIComponent(photo.path)}`;
+    viewerVideo.onerror = () => {
+      if (viewer.hidden || viewerVideo.hidden || state.photos[state.open]?.path !== photo.path) return;
+      notePreviewMiss(photo, viewerVideo.src, () => {
+        statusEl.textContent = "这张预览打不开";
+      });
+    };
   } else {
     viewerVideo.pause();
     viewerVideo.hidden = true;
@@ -738,6 +781,12 @@ function openViewer(index) {
     viewerImg.hidden = false;
     viewerImg.alt = photo.name;
     viewerImg.src = `/api/library/view?path=${encodeURIComponent(photo.path)}`;
+    viewerImg.onerror = () => {
+      if (viewer.hidden || state.photos[state.open]?.path !== photo.path) return;
+      notePreviewMiss(photo, viewerImg.src, () => {
+        statusEl.textContent = "这张预览打不开";
+      });
+    };
   }
   paintPhotoStars(photo);
   showPhotoInfo(photo);
@@ -1289,10 +1338,12 @@ window.addEventListener("keydown", (event) => {
 });
 
 loadSettings().then(() => refreshQuiet()).then(async (data) => {
+  if (!data.recognizing && !data.scanning && data.summary?.finishedAt) {
+    statusEl.textContent = `上次扫描收录 ${data.total} 张。下次打开会直接显示这些记录。`;
+  }
   await loadMarks();
   await loadTree();
   await loadPhotos(true);
   if (data.recognizing) watchRecognize();
   if (data.scanning) watchScan();
-  else if (data.summary?.finishedAt) statusEl.textContent = `上次扫描收录 ${data.total} 张。下次打开会直接显示这些记录。`;
 });
