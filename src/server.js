@@ -462,7 +462,7 @@ function startSearch(body) {
     throw error;
   }
   if (!patterns.length) {
-    const error = new Error("请填写文件名，例如 *.zip 或 *kk*.pdf");
+    const error = new Error("请填写文件名，例如 *.zip 或 *kk*.zip");
     error.status = 400;
     throw error;
   }
@@ -503,12 +503,10 @@ function startSearch(body) {
   worker.on("message", (message) => {
     if (message.type === "progress") {
       job.progress = message.progress;
-      job.found = message.progress.files || 0;
-      job.foundBytes = message.progress.bytes || 0;
       emit(job, "progress", message.progress);
-    } else if (message.type === "file") {
-      job.files.push(message.file);
-      emit(job, "file", message.file);
+    } else if (message.type === "group") {
+      remember(job, message.group);
+      emit(job, "group", message.group);
     } else if (message.type === "done") {
       job.summary = message.summary;
       settle(job, "done", { summary: message.summary });
@@ -674,11 +672,7 @@ async function handle(req, res) {
         "X-Content-Type-Options": "nosniff",
       });
       job.listeners.add(res);
-      if (job.mode === "search") {
-        for (const file of job.files) res.write(`event: file\ndata: ${JSON.stringify(file)}\n\n`);
-      } else {
-        for (const group of job.groups) res.write(`event: group\ndata: ${JSON.stringify(group)}\n\n`);
-      }
+      for (const group of job.groups) res.write(`event: group\ndata: ${JSON.stringify(group)}\n\n`);
       res.write(`event: progress\ndata: ${JSON.stringify(job.progress)}\n\n`);
       if (job.status === "done") res.write(`event: done\ndata: ${JSON.stringify(job.summary)}\n\n`);
       if (job.status === "cancelled") res.write(`event: cancelled\ndata: ${JSON.stringify({ cancelled: true, groups: job.groups.length })}\n\n`);

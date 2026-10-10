@@ -159,21 +159,9 @@ function updateTotals() {
   const stat = totals();
   const exact = state.groups.filter((group) => group.kind !== "similar").length;
   const similar = state.groups.length - exact;
-  document.querySelector('[data-filter="all"]').textContent = `全部 ${state.mode === "search" ? 0 : state.groups.length}`;
-  document.querySelector('[data-filter="exact"]').textContent = `内容相同 ${state.mode === "search" ? 0 : exact}`;
-  document.querySelector('[data-filter="similar"]').textContent = `画面相似 ${state.mode === "search" ? 0 : similar}`;
-  if (state.mode === "search") {
-    totalsEl.textContent = state.searchTotal
-      ? `找到 ${state.searchTotal} 个 · 共 ${formatBytes(state.searchBytes)}`
-      : (state.jobId ? "没有对上的文件" : "尚未搜索");
-    document.querySelector("#delete").disabled = true;
-    document.querySelector("#export").disabled = true;
-    document.querySelector("#toggle-open").disabled = true;
-    document.querySelector("#select-all").disabled = true;
-    document.querySelector("#select-none").disabled = true;
-    document.querySelector("#legend").hidden = true;
-    return;
-  }
+  document.querySelector('[data-filter="all"]').textContent = `全部 ${state.groups.length}`;
+  document.querySelector('[data-filter="exact"]').textContent = `内容相同 ${exact}`;
+  document.querySelector('[data-filter="similar"]').textContent = `画面相似 ${similar}`;
   if (!state.jobId) {
     totalsEl.textContent = "尚未扫描";
   } else if (!stat.groups) {
@@ -459,14 +447,12 @@ function listen(jobId) {
   source.addEventListener("progress", (event) => {
     const progress = JSON.parse(event.data);
     if (state.mode === "search") {
-      state.searchTotal = progress.files || 0;
-      state.searchBytes = progress.bytes || 0;
-      const bits = [progress.phase || "搜索中"];
+      const bits = [progress.phase || "正在查找重复"];
       if (progress.dirs) bits.push(`已查看 ${progress.dirs} 个文件夹`);
-      bits.push(`找到 ${progress.files || 0} 个`);
-      if (progress.bytes) bits.push(formatBytes(progress.bytes));
+      if (progress.files != null) bits.push(`对上 ${progress.files} 个`);
+      if (progress.hashTotal) bits.push(`内容对比 ${progress.hashDone || 0}/${progress.hashTotal}`);
+      if (progress.groups) bits.push(`重复 ${progress.groups} 组`);
       setStatus(bits.join(" · "));
-      updateTotals();
       return;
     }
     const bits = [progress.phase || "扫描中"];
@@ -478,7 +464,6 @@ function listen(jobId) {
     setStatus(bits.join(" · "));
   });
   source.addEventListener("group", (event) => upsertGroup(JSON.parse(event.data)));
-  source.addEventListener("file", (event) => addHit(JSON.parse(event.data)));
   source.addEventListener("done", (event) => {
     const summary = JSON.parse(event.data);
     if (state.mode === "search") finishSearch(summary, false);
@@ -495,19 +480,6 @@ function listen(jobId) {
   });
 }
 
-function addHit(file) {
-  if (state.mode !== "search") return;
-  state.hits.push(file);
-  if (resultsEl.querySelector(".empty")) resultsEl.replaceChildren();
-  resultsEl.append(h("div", { class: "hit" }, [
-    h("span", { class: "name", text: file.name, title: file.path }),
-    h("span", { class: "size", text: formatBytes(file.size) }),
-    revealButton(file),
-    h("span", { class: "path", text: file.path }),
-  ]));
-  updateTotals();
-}
-
 function finishSearch(summary, error) {
   state.source?.close();
   state.source = null;
@@ -517,16 +489,16 @@ function finishSearch(summary, error) {
     return;
   }
   if (summary?.cancelled) {
-    setStatus(`已停止。已找到 ${summary.files || state.hits.length} 个文件。`);
+    setStatus(`已停止。已确认 ${state.groups.length} 组重复。`);
     return;
   }
   const seconds = Math.max(1, Math.round((summary?.elapsedMs || 0) / 1000));
-  const parts = [`搜索完成，用时 ${seconds} 秒。找到 ${summary?.files || 0} 个，共 ${formatBytes(summary?.bytes || 0)}。`];
-  if (summary?.truncated) parts.push(`右侧列出前 ${summary.listed} 个。`);
+  const parts = [`查找完成，用时 ${seconds} 秒。对上 ${summary?.files || 0} 个文件，确认 ${summary?.groups || 0} 组内容相同。`];
+  if (summary?.candidates != null) parts.push(`其中 ${summary.candidates} 个大小相同，对比了这些文件的内容。`);
   if (summary?.softwareSkipped) parts.push(`已跳过 ${summary.softwareSkipped} 个软件目录。`);
-  if (!summary?.files) parts.push("没有对上的文件。");
+  if (!summary?.groups) parts.push("没有找到内容相同的重复文件。");
   setStatus(parts.join(" "));
-  if (!state.hits.length) resultsEl.replaceChildren(h("p", { class: "empty", text: "没有对上的文件。" }));
+  if (!state.groups.length) resultsEl.replaceChildren(h("p", { class: "empty", text: "没有找到内容相同的重复文件。" }));
   updateTotals();
 }
 
@@ -698,7 +670,7 @@ document.querySelector("#find-files").addEventListener("click", async () => {
   }
   const pattern = document.querySelector("#name-pattern").value.trim();
   if (!pattern) {
-    setStatus("请填写文件名，例如 *.zip。", true);
+    setStatus("请填写文件名，例如 *.zip 或 *kk*.zip。", true);
     return;
   }
   save();
@@ -708,10 +680,10 @@ document.querySelector("#find-files").addEventListener("click", async () => {
   state.searchTotal = 0;
   state.searchBytes = 0;
   state.jobId = "";
-  resultsEl.replaceChildren(h("p", { class: "empty", text: "正在搜索…" }));
+  resultsEl.replaceChildren(h("p", { class: "empty", text: "正在查找内容相同的重复文件…" }));
   updateTotals();
   setBusy(true);
-  setStatus("正在开始搜索…");
+  setStatus("正在开始查找重复…");
   try {
     const data = await postJson("/api/search", { roots: state.roots, patterns: pattern });
     state.jobId = data.jobId;

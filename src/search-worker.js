@@ -4,13 +4,13 @@ import { searchFiles, SearchCancelled } from "./search.js";
 const flag = new Int32Array(workerData.sab);
 
 try {
-  const result = searchFiles({
+  const result = await searchFiles({
     roots: workerData.roots,
     patterns: workerData.patterns,
     excludeDirs: workerData.excludeDirs || [],
     isCancelled: () => Atomics.load(flag, 0) !== 0,
     onProgress: (progress) => parentPort.postMessage({ type: "progress", progress }),
-    onFile: (file) => parentPort.postMessage({ type: "file", file }),
+    onGroup: (group) => parentPort.postMessage({ type: "group", group }),
   });
   parentPort.postMessage({ type: "done", summary: result });
 } catch (error) {
