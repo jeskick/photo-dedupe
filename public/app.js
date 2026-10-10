@@ -74,7 +74,6 @@ function save() {
     similar: document.querySelector("#similar").checked,
     similarDistance: document.querySelector("#similar-distance").value,
     sidecars: document.querySelector("#sidecars").checked,
-    namePattern: document.querySelector("#name-pattern").value,
   };
   localStorage.setItem(STORE, JSON.stringify(settings));
 }
@@ -186,6 +185,9 @@ function setBusy(running) {
   state.running = running;
   document.querySelector("#scan").disabled = running;
   document.querySelector("#find-files").disabled = running;
+  document.querySelector("#file-pick-multi").disabled = running;
+  document.querySelector("#file-pick-one").disabled = running;
+  document.querySelector(".sidecar").hidden = state.mode === "search";
   document.querySelector("#pick-multi").disabled = running;
   document.querySelector("#pick-one").disabled = running;
   document.querySelector("#stop").hidden = !running;
@@ -495,7 +497,7 @@ function finishSearch(summary, error) {
   const seconds = Math.max(1, Math.round((summary?.elapsedMs || 0) / 1000));
   const parts = [`查找完成，用时 ${seconds} 秒。对上 ${summary?.files || 0} 个文件，确认 ${summary?.groups || 0} 组内容相同。`];
   if (summary?.candidates != null) parts.push(`其中 ${summary.candidates} 个大小相同，对比了这些文件的内容。`);
-  if (summary?.softwareSkipped) parts.push(`已跳过 ${summary.softwareSkipped} 个软件目录。`);
+  if (summary?.excluded) parts.push(`已跳过你指定的 ${summary.excluded} 个目录。`);
   if (!summary?.groups) parts.push("没有找到内容相同的重复文件。");
   setStatus(parts.join(" "));
   if (!state.groups.length) resultsEl.replaceChildren(h("p", { class: "empty", text: "没有找到内容相同的重复文件。" }));
@@ -530,13 +532,15 @@ function finishScan(summary, error) {
   renderAll();
 }
 
-async function pick(mode) {
+async function pick(mode, onPaths = addRoots) {
   document.querySelector("#pick-multi").disabled = true;
   document.querySelector("#pick-one").disabled = true;
+  document.querySelector("#file-pick-multi").disabled = true;
+  document.querySelector("#file-pick-one").disabled = true;
   setStatus(mode === "one" ? "正在打开文件夹窗口…" : "正在打开多选文件夹窗口。如果它在任务栏闪烁，请点开它。");
   try {
     const data = await postJson("/api/pick", { mode });
-    if (data.paths?.length) addRoots(data.paths);
+    if (data.paths?.length) onPaths(data.paths);
     else setStatus("没有添加新目录。");
   } catch (error) {
     setStatus(error.message, true);
@@ -544,6 +548,8 @@ async function pick(mode) {
     if (!state.running) {
       document.querySelector("#pick-multi").disabled = false;
       document.querySelector("#pick-one").disabled = false;
+      document.querySelector("#file-pick-multi").disabled = false;
+      document.querySelector("#file-pick-one").disabled = false;
     }
   }
 }
@@ -664,8 +670,8 @@ resultsEl.addEventListener("click", (event) => {
 });
 
 document.querySelector("#find-files").addEventListener("click", async () => {
-  if (!state.roots.length) {
-    setStatus("请先添加要搜索的文件夹。", true);
+  if (!fileFind.roots.length) {
+    setStatus("请先在「按文件名查重」里添加目录。", true);
     return;
   }
   const pattern = document.querySelector("#name-pattern").value.trim();
@@ -673,7 +679,7 @@ document.querySelector("#find-files").addEventListener("click", async () => {
     setStatus("请填写文件名，例如 *.zip 或 *kk*.zip。", true);
     return;
   }
-  save();
+  saveFileFind();
   state.mode = "search";
   state.groups = [];
   state.hits = [];
@@ -685,7 +691,11 @@ document.querySelector("#find-files").addEventListener("click", async () => {
   setBusy(true);
   setStatus("正在开始查找重复…");
   try {
-    const data = await postJson("/api/search", { roots: state.roots, patterns: pattern });
+    const data = await postJson("/api/search", {
+      roots: fileFind.roots,
+      patterns: pattern,
+      excludeDirs: fileFind.excludeDirs,
+    });
     state.jobId = data.jobId;
     listen(data.jobId);
   } catch (error) {
@@ -752,7 +762,7 @@ document.querySelector("#modal-ok").addEventListener("click", async () => {
   try {
     await state.queue;
     const data = await postJson(`/api/jobs/${state.jobId}/delete`, {
-      includeSidecars: document.querySelector("#sidecars").checked,
+      includeSidecars: state.mode !== "search" && document.querySelector("#sidecars").checked,
     });
     state.groups = data.groups || [];
     const skipped = data.skipped?.length ? `有 ${data.skipped.length} 个未删除。` : "";
@@ -783,8 +793,91 @@ if (saved.withoutTime != null) document.querySelector("#without-time").checked =
 if (saved.similar != null) document.querySelector("#similar").checked = saved.similar !== false;
 if (saved.similarDistance != null) document.querySelector("#similar-distance").value = saved.similarDistance;
 if (saved.sidecars != null) document.querySelector("#sidecars").checked = saved.sidecars !== false;
-if (typeof saved.namePattern === "string") document.querySelector("#name-pattern").value = saved.namePattern;
-document.querySelector("#name-pattern").addEventListener("change", save);
+
+const FILE_STORE = "photo-dedupe-filefind";
+const fileFind = { roots: [], excludeDirs: [] };
+const fileRootsEl = document.querySelector("#file-roots");
+const fileExcludeList = document.querySelector("#file-exclude-list");
+const fileFindEl = document.querySelector("#file-find");
+
+function loadFileFind() {
+  try {
+    return JSON.parse(localStorage.getItem(FILE_STORE) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function saveFileFind() {
+  localStorage.setItem(FILE_STORE, JSON.stringify({
+    roots: fileFind.roots,
+    excludeDirs: fileFind.excludeDirs,
+    pattern: document.querySelector("#name-pattern").value,
+    open: fileFindEl.open,
+  }));
+}
+
+function addFileRoots(paths) {
+  for (const raw of paths) {
+    const text = String(raw || "").trim().replace(/^"(.*)"$/, "$1");
+    if (!text) continue;
+    if (fileFind.roots.some((item) => item.toLowerCase() === text.toLowerCase())) continue;
+    fileFind.roots.push(text);
+  }
+  renderFileFind();
+  saveFileFind();
+}
+
+function renderFileFind() {
+  fileRootsEl.replaceChildren();
+  if (!fileFind.roots.length) fileRootsEl.append(h("p", { class: "note", text: "还没有目录。这里的目录和上面的照片扫描无关。" }));
+  for (const root of fileFind.roots) {
+    const button = h("button", { type: "button", class: "ghost", text: "移除" });
+    button.addEventListener("click", () => {
+      fileFind.roots = fileFind.roots.filter((item) => item !== root);
+      renderFileFind();
+      saveFileFind();
+    });
+    fileRootsEl.append(h("div", { class: "root" }, [h("span", { text: root }), button]));
+  }
+  fileExcludeList.replaceChildren();
+  for (const dir of fileFind.excludeDirs) {
+    const item = h("li");
+    const remove = h("button", { type: "button", text: "移除" });
+    remove.addEventListener("click", () => {
+      fileFind.excludeDirs = fileFind.excludeDirs.filter((entry) => entry !== dir);
+      renderFileFind();
+      saveFileFind();
+    });
+    item.append(h("span", { text: dir, title: dir }), remove);
+    fileExcludeList.append(item);
+  }
+}
+
+const savedFileFind = loadFileFind();
+if (Array.isArray(savedFileFind.roots)) fileFind.roots = savedFileFind.roots.filter((item) => typeof item === "string");
+if (Array.isArray(savedFileFind.excludeDirs)) fileFind.excludeDirs = savedFileFind.excludeDirs.filter((item) => typeof item === "string");
+if (typeof savedFileFind.pattern === "string") document.querySelector("#name-pattern").value = savedFileFind.pattern;
+fileFindEl.open = savedFileFind.open === true;
+renderFileFind();
+fileFindEl.addEventListener("toggle", saveFileFind);
+document.querySelector("#name-pattern").addEventListener("change", saveFileFind);
+document.querySelector("#file-pick-multi").addEventListener("click", () => pick("multi", addFileRoots));
+document.querySelector("#file-pick-one").addEventListener("click", () => pick("one", addFileRoots));
+document.querySelector("#file-clear-roots").addEventListener("click", () => {
+  fileFind.roots = [];
+  renderFileFind();
+  saveFileFind();
+});
+document.querySelector("#file-exclude-add").addEventListener("click", () => pick("one", (paths) => {
+  for (const raw of paths) {
+    const text = String(raw || "").trim();
+    if (!text || fileFind.excludeDirs.some((item) => item.toLowerCase() === text.toLowerCase())) continue;
+    fileFind.excludeDirs.push(text);
+  }
+  renderFileFind();
+  saveFileFind();
+}));
 
 let shared = { excludeDirs: [], minEdgePhoto: 0, minEdgeVideo: 0 };
 const excludeList = document.querySelector("#exclude-list");

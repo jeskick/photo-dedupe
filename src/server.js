@@ -490,12 +490,14 @@ function startSearch(body) {
     worker: null,
   };
   jobs.set(job.id, job);
-  const settings = librarySettings(photosDb());
+  const excludeDirs = Array.isArray(body.excludeDirs)
+    ? body.excludeDirs.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 40)
+    : [];
   const worker = new Worker(new URL("./search-worker.js", import.meta.url), {
     workerData: {
       roots: body.roots,
       patterns,
-      excludeDirs: settings.excludeDirs,
+      excludeDirs,
       sab,
     },
   });

@@ -28,12 +28,6 @@
         <label class="check"><input id="kind-apple" type="checkbox" checked>HEIC</label>
         <label class="check"><input id="kind-video" type="checkbox" checked>视频</label>
       </div>
-      <h2>按文件名查重</h2>
-      <label class="stack" for="name-pattern">文件名</label>
-      <input id="name-pattern" type="text" placeholder="*.zip  *kk*.zip" aria-label="按文件名查重" spellcheck="false">
-      <p class="note">用 * 表示任意文字，不分大小写，多个用空格分开。*.zip 对比所选目录里的全部 zip；*kk*.zip 只对比名字里有 kk 的。内容完全相同才列成一组。软件目录和排除目录仍会跳过。</p>
-      <button id="find-files" type="button">查找重复</button>
-
       <h2>跳过</h2>
       <label class="scan-line">长边小于
         <select id="min-edge" aria-label="小于多少像素不比对">
@@ -69,6 +63,23 @@
     <div class="side-foot">
       <button id="scan" type="button">开始扫描</button>
     </div>
+    <details id="file-find" class="file-find">
+      <summary>按文件名查重</summary>
+      <div class="file-find-body">
+        <div id="file-roots" class="roots"></div>
+        <div class="actions">
+          <button id="file-pick-multi" type="button">添加目录</button>
+          <button id="file-pick-one" type="button" class="ghost">添加一个</button>
+          <button id="file-clear-roots" type="button" class="ghost">清空</button>
+        </div>
+        <label class="stack" for="name-pattern">文件名</label>
+        <input id="name-pattern" type="text" placeholder="*.zip  *kk*.zip" aria-label="按文件名查重" spellcheck="false">
+        <p class="note">和上面的照片、视频无关。*.zip 对比这些目录里的全部 zip；*kk*.zip 只对比名字里有 kk 的，不分大小写。内容完全相同才列成一组。默认不跳过软件目录。</p>
+        <ul id="file-exclude-list" class="exclude"></ul>
+        <button id="file-exclude-add" type="button" class="ghost">添加不搜索的目录</button>
+        <button id="find-files" type="button">查找重复</button>
+      </div>
+    </details>
     </section>
     <section class="work">
       <div id="status" class="status" aria-live="polite">

@@ -17,17 +17,22 @@ test("按文件名条件只列出内容相同的重复，名字不同也对得�
     fs.writeFileSync(path.join(dir, "mixed", "notes.txt"), Buffer.from("notes"));
     fs.writeFileSync(path.join(dir, "mixed", "other.zip"), same);
     fs.writeFileSync(path.join(dir, "mixed", "alone.zip"), Buffer.from("zip-only-once"));
-    fs.writeFileSync(path.join(dir, "node_modules", "pkg", "hidden.zip"), same);
+    fs.writeFileSync(path.join(dir, "node_modules", "pkg", "backup-kk.zip"), same);
+    fs.mkdirSync(path.join(dir, "skip"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "skip", "backup-kk.zip"), same);
     const result = await searchFiles({
       roots: [dir],
       patterns: "*kk*.zip",
+      excludeDirs: [path.join(dir, "skip")],
       onGroup: (group) => groups.push(group),
     });
-    assert.equal(result.files, 2);
+    assert.equal(result.files, 3);
     assert.equal(result.groups, 1);
-    assert.deepEqual(groups[0].files.map((file) => file.name).sort(), ["Archive-KK (1).ZIP", "report-kk.zip"]);
+    assert.deepEqual(groups[0].files.map((file) => file.name).sort(), ["Archive-KK (1).ZIP", "backup-kk.zip", "report-kk.zip"]);
     assert.equal(groups[0].files.filter((file) => file.role === "keep").length, 1);
-    assert.equal(result.softwareSkipped > 0, true);
+    assert.equal(groups[0].files.some((file) => file.path.includes(`${path.sep}node_modules${path.sep}`)), true);
+    assert.equal(groups[0].files.some((file) => file.path.includes(`${path.sep}skip${path.sep}`)), false);
+    assert.equal(result.excluded > 0, true);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

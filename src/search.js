@@ -6,7 +6,6 @@ import { isExcludedDir } from "./library-scan.js";
 import { markOrigins, orderForKeep } from "./match.js";
 import { compileNamePatterns } from "./patterns.js";
 import { pruneRoots } from "./roots.js";
-import { isSoftwareBoundary } from "./skip.js";
 
 export class SearchCancelled extends Error {
   constructor() {
@@ -101,7 +100,7 @@ export async function searchFiles(options) {
   const errors = [];
   const media = [];
   let dirs = 0;
-  let softwareSkipped = 0;
+  let excluded = 0;
   const progress = {
     phase: "正在查找文件",
     dirs: 0,
@@ -111,7 +110,7 @@ export async function searchFiles(options) {
     hashDone: 0,
     hashTotal: 0,
     groups: 0,
-    softwareSkipped: 0,
+    excluded: 0,
   };
   const emit = () => onProgress?.({ ...progress });
   emit();
@@ -122,8 +121,8 @@ export async function searchFiles(options) {
     const dirKey = dir.toLowerCase();
     if (seen.has(dirKey)) continue;
     seen.add(dirKey);
-    if (isSoftwareBoundary(dir) || skipDir(dir)) {
-      softwareSkipped += 1;
+    if (skipDir(dir)) {
+      excluded += 1;
       continue;
     }
     let entries;
@@ -139,7 +138,7 @@ export async function searchFiles(options) {
       const full = path.join(dir, entry.name);
       if (entry.isSymbolicLink()) continue;
       if (entry.isDirectory()) {
-        if (isSoftwareBoundary(full) || skipDir(full)) softwareSkipped += 1;
+        if (skipDir(full)) excluded += 1;
         else stack.push(full);
         continue;
       }
@@ -174,13 +173,13 @@ export async function searchFiles(options) {
     }
     if (dirs % 25 === 0) {
       progress.dirs = dirs;
-      progress.softwareSkipped = softwareSkipped;
+      progress.excluded = excluded;
       emit();
     }
   }
   progress.dirs = dirs;
   progress.files = media.length;
-  progress.softwareSkipped = softwareSkipped;
+  progress.excluded = excluded;
 
   const bySize = new Map();
   for (const file of media) {
@@ -234,7 +233,7 @@ export async function searchFiles(options) {
     candidates: candidates.length,
     groups: groups.length,
     dirs,
-    softwareSkipped,
+    excluded,
     errors,
     nestedRoots: nested,
     invalidRoots: invalid,
