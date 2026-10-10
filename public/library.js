@@ -2,6 +2,11 @@ const treeEl = document.querySelector("#tree");
 const mosaicEl = document.querySelector("#mosaic");
 const stageEl = document.querySelector("#stage");
 const countEl = document.querySelector("#count");
+const nav = document.querySelector(".nav");
+const totalBar = h("div", { id: "library-total", class: "library-total", text: "还没有照片" });
+const navScroll = h("div", { class: "nav-scroll" });
+for (const child of [...nav.children]) navScroll.append(child);
+nav.append(navScroll, totalBar);
 const statusEl = document.querySelector("#scan-status");
 const searchEl = document.querySelector("#search");
 const scanBtn = document.querySelector("#scan");
@@ -74,16 +79,18 @@ function nest(days) {
   for (const row of days) {
     let year = years.find((item) => item.year === row.year);
     if (!year) {
-      year = { year: row.year, count: 0, months: [] };
+      year = { year: row.year, count: 0, bytes: 0, months: [] };
       years.push(year);
     }
     year.count += row.count;
+    year.bytes += Number(row.bytes) || 0;
     let month = year.months.find((item) => item.month === row.month);
     if (!month) {
-      month = { month: row.month, count: 0, days: [] };
+      month = { month: row.month, count: 0, bytes: 0, days: [] };
       year.months.push(month);
     }
     month.count += row.count;
+    month.bytes += Number(row.bytes) || 0;
     month.days.push(row);
   }
   return years;
@@ -242,7 +249,7 @@ function renderTree() {
     const open = String(state.year) === String(year.year);
     const button = h("button", { class: `year${open && !state.month ? " on" : ""}`, type: "button" }, [
       h("span", { text: String(year.year) }),
-      h("span", { class: "count", text: String(year.count) }),
+      countLabel(year.count, year.bytes),
     ]);
     button.addEventListener("click", () => selectTime(year.year, "", ""));
     treeEl.append(button);
@@ -251,7 +258,7 @@ function renderTree() {
       const monthOn = String(state.month) === String(month.month) && !state.day;
       const monthBtn = h("button", { class: `month${monthOn ? " on" : ""}`, type: "button" }, [
         h("span", { text: monthName(month.month) }),
-        h("span", { class: "count", text: String(month.count) }),
+        countLabel(month.count, month.bytes),
       ]);
       monthBtn.addEventListener("click", () => selectTime(year.year, month.month, ""));
       treeEl.append(monthBtn);
@@ -260,7 +267,7 @@ function renderTree() {
         const dayOn = String(state.day) === String(day.day);
         const dayBtn = h("button", { class: `day${dayOn ? " on" : ""}`, type: "button" }, [
           h("span", { text: `${day.day}日` }),
-          h("span", { class: "count", text: String(day.count) }),
+          countLabel(day.count, day.bytes),
         ]);
         dayBtn.addEventListener("click", () => selectTime(year.year, month.month, day.day));
         treeEl.append(dayBtn);
@@ -373,12 +380,21 @@ function blockImageSelect(element) {
   });
 }
 
+function countLabel(count, bytes) {
+  return h("span", { class: "count" }, [
+    h("span", { text: String(count) }),
+    h("span", { class: "bytes", text: compactSize(bytes) }),
+  ]);
+}
+
 function compactSize(bytes) {
   const n = Number(bytes) || 0;
   const kb = 1024;
   const mb = kb * 1024;
   const gb = mb * 1024;
+  const tb = gb * 1024;
   const text = (value, unit) => `${value >= 10 ? Math.round(value) : Math.round(value * 10) / 10}${unit}`;
+  if (n >= tb) return text(n / tb, "TB");
   if (n >= gb) return text(n / gb, "GB");
   if (n >= mb) return text(n / mb, "MB");
   if (n >= kb) return `${Math.max(1, Math.round(n / kb))}KB`;
@@ -646,15 +662,17 @@ function selectTime(year, month, day) {
   stageEl.scrollTop = 0;
 }
 
-function showCount(total) {
+function showCount(total, bytes) {
   const noun = state.kind === "video" ? "个视频" : "张";
   countEl.textContent = total ? `已收录 ${total} ${noun}` : (state.kind === "video" ? "还没有视频" : "还没有照片");
+  const unit = state.kind === "video" ? "个视频" : "张照片";
+  totalBar.textContent = total ? `${total} ${unit} · ${compactSize(bytes)}` : (state.kind === "video" ? "还没有视频" : "还没有照片");
 }
 
 async function refreshQuiet() {
   const response = await fetch("/api/library/state");
   const data = await response.json();
-  showCount(state.kind === "video" ? data.videos : data.photos);
+  showCount(state.kind === "video" ? data.videos : data.photos, state.kind === "video" ? data.videoBytes : data.photoBytes);
   state.scanning = Boolean(data.scanning);
   scanBtn.hidden = state.scanning;
   stopBtn.hidden = !state.scanning;

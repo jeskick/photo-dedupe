@@ -31,11 +31,15 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   flex-direction: column;
   min-height: 0;
   min-width: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-  padding: 18px 12px 14px;
+  overflow: hidden;
   border-right: 1px solid var(--line);
   background: var(--nav);
+}
+.nav-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 18px 12px 14px;
 }
 .mode { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 0 4px 10px; }
 .mode .nav-item { justify-content: center; padding: 9px 8px; }
@@ -136,11 +140,25 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .day { padding-left: 44px; color: var(--muted); }
 .count {
   margin-left: auto;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   color: var(--muted);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
-.on .count { color: white; }
+.bytes { color: #bdc1c6; }
+.on .count, .on .bytes { color: white; }
+.library-total {
+  flex-shrink: 0;
+  padding: 10px 16px;
+  border-top: 1px solid var(--line);
+  background: var(--nav);
+  color: var(--ink);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
 .nav-foot { padding: 12px 8px 0; border-top: 1px solid var(--line); }
 .nav-foot p { margin: 0 0 8px; }
 .hint { color: var(--muted); font-size: 12px; line-height: 1.45; min-height: 2.8em; overflow-wrap: anywhere; }

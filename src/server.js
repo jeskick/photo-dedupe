@@ -10,7 +10,7 @@ import { applyDeletions } from "./delete.js";
 import { pickFolders, recyclePaths, revealPath } from "./picker.js";
 import { renderPreviewJpeg, renderVideoFrame } from "./preview.js";
 import { listDrives, pairedCameraPaths } from "./library-scan.js";
-import { ensurePeopleClusters, libraryCount, libraryMarks, libraryMeta, libraryPhoto, libraryPhotoPaths, librarySettings, libraryTree, loadPeople, openLibrary, photoFaces, prepareRecognition, purgeScan, queryPhotos, removePhotos, renameFace, renamePerson, saveLibrarySettings, saveRecognition, setLibraryMeta, setRating, upsertPhotos } from "./library-db.js";
+import { ensurePeopleClusters, libraryCount, libraryKindTotals, libraryMarks, libraryMeta, libraryPhoto, libraryPhotoPaths, librarySettings, libraryTree, loadPeople, openLibrary, photoFaces, prepareRecognition, purgeScan, queryPhotos, removePhotos, renameFace, renamePerson, saveLibrarySettings, saveRecognition, setLibraryMeta, setRating, upsertPhotos } from "./library-db.js";
 import { describePhoto, readPhotoFacts } from "./photo-info.js";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, "..", "public");
@@ -35,10 +35,13 @@ function libraryState() {
   } catch {
     summary = null;
   }
+  const totals = libraryKindTotals(db);
   return {
-    total: libraryCount(db),
-    photos: libraryCount(db, "photo"),
-    videos: libraryCount(db, "video"),
+    total: totals.photo.count + totals.video.count,
+    photos: totals.photo.count,
+    videos: totals.video.count,
+    photoBytes: totals.photo.bytes,
+    videoBytes: totals.video.bytes,
     scanning: Boolean(libraryJob),
     progress: libraryJob?.progress || null,
     recognizing: Boolean(recognizeJob),

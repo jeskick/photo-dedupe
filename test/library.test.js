@@ -40,6 +40,7 @@ test("照片库按时间保存，混有其他文件的目录不进入", () => {
   assert.equal(libraryCount(db), 2);
   const tree = libraryTree(db);
   assert.equal(tree[0].count, 2);
+  assert.ok(tree[0].bytes > 0);
   const listed = queryPhotos(db, { year: 2020, month: 1, q: "kept" });
   assert.equal(listed.length, 2);
   assert.ok(listed[0].size > 0);

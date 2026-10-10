@@ -181,6 +181,16 @@ export function libraryMeta(db) {
   return meta;
 }
 
+export function libraryKindTotals(db) {
+  const totals = { photo: { count: 0, bytes: 0 }, video: { count: 0, bytes: 0 } };
+  const rows = db.prepare("SELECT kind, COUNT(*) AS count, COALESCE(SUM(size), 0) AS bytes FROM photos GROUP BY kind").all();
+  for (const row of rows) {
+    if (!totals[row.kind]) continue;
+    totals[row.kind] = { count: Number(row.count) || 0, bytes: Number(row.bytes) || 0 };
+  }
+  return totals;
+}
+
 export function libraryCount(db, kind) {
   if (kind === "photo" || kind === "video") {
     return db.prepare("SELECT COUNT(*) AS count FROM photos WHERE kind = ?").get(kind).count;
@@ -304,7 +314,7 @@ export function libraryTree(db, filter = {}) {
   const where = [];
   const params = [];
   ratingClause(filter, where, params);
-  return db.prepare(`SELECT year, month, day, COUNT(*) AS count FROM photos ${where.length ? `WHERE ${where.join(" AND ")}` : ""} GROUP BY year, month, day ORDER BY year DESC, month DESC, day DESC`).all(...params);
+  return db.prepare(`SELECT year, month, day, COUNT(*) AS count, COALESCE(SUM(size), 0) AS bytes FROM photos ${where.length ? `WHERE ${where.join(" AND ")}` : ""} GROUP BY year, month, day ORDER BY year DESC, month DESC, day DESC`).all(...params);
 }
 
 export function queryPhotos(db, filter = {}) {
