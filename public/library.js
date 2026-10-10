@@ -1265,10 +1265,27 @@ viewerImg.addEventListener("dblclick", (event) => {
   if (photo) reveal(photo.path);
 });
 window.addEventListener("keydown", (event) => {
-  if (viewer.hidden) return;
+  if (viewer.hidden || event.metaKey || event.ctrlKey || event.altKey) return;
   if (event.key === "Escape") closeViewer();
   if (event.key === "ArrowLeft") stepViewer(-1);
   if (event.key === "ArrowRight") stepViewer(1);
+  if (event.key === " " || event.key === "Spacebar") {
+    event.preventDefault();
+    if (!viewerVideo.hidden) {
+      if (viewerVideo.paused) viewerVideo.play().catch(() => {});
+      else viewerVideo.pause();
+    }
+  }
+  const photo = state.photos[state.open];
+  if (!photo || event.repeat) return;
+  if (event.key === "f" || event.key === "F") {
+    event.preventDefault();
+    ratePhoto(photo, Number(photo.rating) === 5 ? 0 : 5);
+  }
+  if (event.key === "Delete") {
+    event.preventDefault();
+    deletePhoto(photo);
+  }
 });
 
 loadSettings().then(() => refreshQuiet()).then(async (data) => {
