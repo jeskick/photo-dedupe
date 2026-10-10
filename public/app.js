@@ -290,11 +290,19 @@ function renderCards(group) {
     const failed = h("p", { class: "preview-miss", text: "这张预览打不开" });
     let media;
     if (VIDEO_EXT.has(file.ext)) {
+      const poster = `/api/jobs/${state.jobId}/preview?path=${encodeURIComponent(file.path)}`;
       media = document.createElement("video");
       media.controls = true;
       media.preload = "metadata";
+      media.playsInline = true;
+      media.poster = poster;
       media.src = `/api/jobs/${state.jobId}/raw?path=${encodeURIComponent(file.path)}`;
-      media.addEventListener("error", () => media.replaceWith(failed));
+      media.addEventListener("error", () => {
+        const still = h("img", { alt: file.name });
+        still.addEventListener("error", () => still.replaceWith(failed));
+        still.src = poster;
+        media.replaceWith(still);
+      });
     } else {
       media = h("img", { alt: file.name });
       media.addEventListener("error", () => media.replaceWith(failed));

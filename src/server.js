@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { extensionsFor } from "./extensions.js";
 import { applyDeletions } from "./delete.js";
 import { pickFolders, recyclePaths, revealPath } from "./picker.js";
-import { renderPreviewJpeg } from "./preview.js";
+import { renderPreviewJpeg, renderVideoFrame } from "./preview.js";
 import { listDrives, pairedCameraPaths } from "./library-scan.js";
 import { ensurePeopleClusters, libraryCount, libraryMarks, libraryMeta, libraryPhoto, libraryPhotoPaths, librarySettings, libraryTree, loadPeople, openLibrary, photoFaces, prepareRecognition, purgeScan, queryPhotos, removePhotos, renameFace, renamePerson, saveLibrarySettings, saveRecognition, setLibraryMeta, setRating, upsertPhotos } from "./library-db.js";
 import { describePhoto, readPhotoFacts } from "./photo-info.js";
@@ -250,7 +250,13 @@ const VIDEO_TYPES = {
 };
 
 function streamFile(req, res, filePath, type) {
-  const size = fs.statSync(filePath).size;
+  let size;
+  try {
+    size = fs.statSync(filePath).size;
+  } catch {
+    sendJson(res, 404, { error: "文件不在了" });
+    return;
+  }
   const header = {
     "Content-Type": type,
     "Accept-Ranges": "bytes",
@@ -258,25 +264,35 @@ function streamFile(req, res, filePath, type) {
     "X-Content-Type-Options": "nosniff",
   };
   const match = /bytes=(\d*)-(\d*)/.exec(req.headers.range || "");
-  if (!match) {
-    res.writeHead(200, { ...header, "Content-Length": size });
-    fs.createReadStream(filePath).pipe(res);
-    return;
+  let start = 0;
+  let end = size - 1;
+  if (match) {
+    start = match[1] ? Number(match[1]) : 0;
+    end = match[2] ? Number(match[2]) : size - 1;
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start >= size || start > end) {
+      res.writeHead(416, { "Content-Range": `bytes */${size}` });
+      res.end();
+      return;
+    }
+    end = Math.min(end, size - 1);
+    if (!match[2] && end - start + 1 > 8 * 1024 * 1024) end = start + 8 * 1024 * 1024 - 1;
   }
-  let start = match[1] ? Number(match[1]) : 0;
-  let end = match[2] ? Number(match[2]) : size - 1;
-  if (!Number.isFinite(start) || !Number.isFinite(end) || start >= size || start > end) {
-    res.writeHead(416, { "Content-Range": `bytes */${size}` });
-    res.end();
-    return;
-  }
-  end = Math.min(end, size - 1);
-  res.writeHead(206, {
-    ...header,
-    "Content-Range": `bytes ${start}-${end}/${size}`,
-    "Content-Length": end - start + 1,
+  const stream = fs.createReadStream(filePath, { start, end });
+  stream.on("error", () => {
+    if (!res.headersSent) sendJson(res, 404, { error: "文件读不开" });
+    else res.destroy();
   });
-  fs.createReadStream(filePath, { start, end }).pipe(res);
+  res.on("close", () => stream.destroy());
+  if (match) {
+    res.writeHead(206, {
+      ...header,
+      "Content-Range": `bytes ${start}-${end}/${size}`,
+      "Content-Length": end - start + 1,
+    });
+  } else {
+    res.writeHead(200, { ...header, "Content-Length": size });
+  }
+  stream.pipe(res);
 }
 
 function readBody(req) {
@@ -647,7 +663,9 @@ async function handle(req, res) {
           return;
         }
         try {
-          const jpeg = await renderPreviewJpeg(file.path, `${file.size}:${file.mtimeMs}`);
+          const ext = path.extname(file.path).toLowerCase();
+          const render = VIDEO_TYPES[ext] ? renderVideoFrame : renderPreviewJpeg;
+          const jpeg = await render(file.path, `${file.size}:${file.mtimeMs}`);
           res.writeHead(200, {
             "Content-Type": "image/jpeg",
             "Content-Length": jpeg.length,
@@ -666,16 +684,13 @@ async function handle(req, res) {
           sendJson(res, 404, { error: "文件不在本次结果中" });
           return;
         }
-        const type = contentType(path.extname(file.path).toLowerCase());
+        const ext = path.extname(file.path).toLowerCase();
+        const type = VIDEO_TYPES[ext] || contentType(ext);
         if (!type) {
           sendJson(res, 415, { error: "这个格式不能在页面里预览" });
           return;
         }
-        res.writeHead(200, { "Content-Type": type, "Cache-Control": "private, max-age=60", "X-Content-Type-Options": "nosniff" });
-        const stream = fs.createReadStream(file.path);
-        stream.on("error", () => res.destroy());
-        res.on("close", () => stream.destroy());
-        stream.pipe(res);
+        streamFile(req, res, file.path, type);
         return;
       }
     }
