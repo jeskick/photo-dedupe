@@ -112,7 +112,7 @@ a.library-link:hover { background: var(--pine-dark); }
 .root button { padding: 0.25rem 0.6rem; }
 .actions { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.55rem; }
 .scan-actions { margin-top: 0.9rem; }
-textarea, input[type="number"] {
+textarea, input[type="number"], input[type="text"] {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -176,7 +176,7 @@ label.stack, label.inline { display: block; margin: 0.7rem 0 0.3rem; color: var(
   flex-direction: column;
   gap: 0.28rem;
 }
-.photo-list, .video-list { display: flex; flex-direction: column; gap: 0.28rem; }
+.photo-list, .video-list, .other-list { display: flex; flex-direction: column; gap: 0.28rem; }
 .media-split { height: 1px; margin: 0.2rem 0.15rem; background: var(--pine); flex: none; }
 .media-split[hidden] { display: none; }
 .empty { color: var(--muted); padding: 2rem 0.4rem; }
@@ -245,13 +245,20 @@ button.compact { padding: 0.08rem 0.45rem; font-size: 0.78rem; }
 .shot.keep { background: var(--keep); border-color: #8fceb0; }
 .shot.delete { background: var(--drop); }
 .shot.spare { background: #fff; }
-.shot img, .shot video {
+.shot img, .shot video, .file-fallback {
   width: 100%;
   height: 190px;
   object-fit: contain;
   border-radius: 8px;
   background: #1c1915;
   display: block;
+}
+.file-fallback {
+  display: grid;
+  place-items: center;
+  color: #f4f1ea;
+  font-weight: 700;
+  letter-spacing: 0.06em;
 }
 .shot .folder { font-weight: 700; }
 .shot .meta-line { color: var(--muted); font-size: 0.82rem; overflow-wrap: anywhere; }

@@ -10,7 +10,8 @@ import { clusterByCapture, markOrigins, nameKey, orderForKeep, pregroupKey, with
 import { phashFiles } from "./phash.js";
 import { pruneRoots } from "./roots.js";
 import { captureBuckets, clusterPhash, hammingHex } from "./similar.js";
-import { isSoftwareBoundary, directoryHasNonPhotoFile, isBelowDriveFirstLevel } from "./skip.js";
+import { compileNamePatterns } from "./patterns.js";
+import { isSoftwareBoundary, isBelowDriveFirstLevel, isPhotoRelatedFile } from "./skip.js";
 
 export class ScanCancelled extends Error {
   constructor() {
@@ -80,8 +81,9 @@ export function walkMedia(roots, extensions, isCancelled, onFile, onProgress, ex
       noteError(`${dir}: ${error.message}`);
       continue;
     }
+    const allowName = extra.allowName || (() => false);
     const fileNames = entries.filter((entry) => entry.isFile()).map((entry) => entry.name);
-    const mixed = directoryHasNonPhotoFile(fileNames);
+    const mixed = fileNames.some((name) => !isPhotoRelatedFile(name) && !allowName(name));
     if (mixed && isBelowDriveFirstLevel(dir)) {
       softwareSkipped += 1;
       continue;
@@ -101,7 +103,8 @@ export function walkMedia(roots, extensions, isCancelled, onFile, onProgress, ex
       }
       if (!entry.isFile()) continue;
       const ext = path.extname(entry.name).toLowerCase();
-      if (!extensions.has(ext) || entry.name.startsWith("._")) continue;
+      const named = allowName(entry.name);
+      if ((!extensions.has(ext) && !named) || entry.name.startsWith("._")) continue;
       if (mixed) {
         skippedBundledFiles = true;
         continue;
@@ -205,7 +208,8 @@ export async function runScan(options) {
   const onProgress = options.onProgress;
   const onGroup = options.onGroup;
   const extensions = options.extensions instanceof Set ? options.extensions : new Set(options.extensions || []);
-  if (!extensions.size) throw new Error("请至少选择一种文件类型");
+  const patterns = compileNamePatterns(options.patterns);
+  if (!extensions.size && !patterns.list.length) throw new Error("请至少选择一种文件类型，或填写文件名条件");
 
   const nameMode = options.nameMode || "normalized";
   const toleranceSec = Math.min(120, Math.max(0, Number(options.toleranceSec) || 0));
@@ -243,10 +247,13 @@ export async function runScan(options) {
   const minEdgeVideo = Number(options.minEdgeVideo) || 0;
   const media = [];
   const walked = walkMedia(roots, extensions, isCancelled, (file) => {
-    const minEdge = isVideoExt(file.ext) ? minEdgeVideo : minEdgePhoto;
-    if (minEdge) {
-      const probe = probeMedia(file.path, file.ext);
-      if (!passesMinEdge(probe.width, probe.height, minEdge)) return;
+    file.extra = !extensions.has(file.ext);
+    if (!file.extra) {
+      const minEdge = isVideoExt(file.ext) ? minEdgeVideo : minEdgePhoto;
+      if (minEdge) {
+        const probe = probeMedia(file.path, file.ext);
+        if (!passesMinEdge(probe.width, probe.height, minEdge)) return;
+      }
     }
     media.push(file);
     progress.files = media.length;
@@ -257,6 +264,7 @@ export async function runScan(options) {
     emit();
   }, {
     skipDir: (dir) => isExcludedDir(dir, excludeDirs),
+    allowName: patterns.match,
   });
   progress.dirs = walked.dirs;
   progress.files = media.length;
@@ -274,19 +282,26 @@ export async function runScan(options) {
   await mapPool(candidates, 8, async (file) => {
     if (isCancelled()) throw new ScanCancelled();
     progress.current = file.path;
-    try {
-      const result = readCapture(file.path, file.ext, file.size);
-      progress.metaBytes += result.bytesRead;
-      file.captureMs = result.capture?.captureMs ?? null;
-      file.subsecKnown = Boolean(result.capture?.subsecKnown);
-      file.source = result.capture?.source || null;
-      file.metaLoaded = true;
-    } catch (error) {
+    if (file.extra) {
       file.captureMs = null;
       file.subsecKnown = false;
       file.source = null;
       file.metaLoaded = true;
-      if (walked.errors.length < 40) walked.errors.push(`${file.path}: ${error.message}`);
+    } else {
+      try {
+        const result = readCapture(file.path, file.ext, file.size);
+        progress.metaBytes += result.bytesRead;
+        file.captureMs = result.capture?.captureMs ?? null;
+        file.subsecKnown = Boolean(result.capture?.subsecKnown);
+        file.source = result.capture?.source || null;
+        file.metaLoaded = true;
+      } catch (error) {
+        file.captureMs = null;
+        file.subsecKnown = false;
+        file.source = null;
+        file.metaLoaded = true;
+        if (walked.errors.length < 40) walked.errors.push(`${file.path}: ${error.message}`);
+      }
     }
     progress.metaDone += 1;
     const now = Date.now();
@@ -359,7 +374,7 @@ export async function runScan(options) {
   }
 
   if (similar) {
-    const images = media.filter((file) => !isVideoExt(file.ext));
+    const images = media.filter((file) => !file.extra && !isVideoExt(file.ext));
     const unread = images.filter((file) => !file.metaLoaded);
     progress.metaTotal += unread.length;
     progress.phase = "正在读取拍摄时间";

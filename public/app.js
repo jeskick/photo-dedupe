@@ -70,6 +70,7 @@ function save() {
     similar: document.querySelector("#similar").checked,
     similarDistance: document.querySelector("#similar-distance").value,
     sidecars: document.querySelector("#sidecars").checked,
+    namePattern: document.querySelector("#name-pattern").value,
   };
   localStorage.setItem(STORE, JSON.stringify(settings));
 }
@@ -303,10 +304,12 @@ function renderCards(group) {
         still.src = poster;
         media.replaceWith(still);
       });
-    } else {
+    } else if (STILL_EXT.has(file.ext)) {
       media = h("img", { alt: file.name });
       media.addEventListener("error", () => media.replaceWith(failed));
       media.src = `/api/jobs/${state.jobId}/preview?path=${encodeURIComponent(file.path)}`;
+    } else {
+      media = h("div", { class: "file-fallback", text: String(file.ext || "文件").replace(/^\./, "").toUpperCase() });
     }
     box.append(h("div", { class: `shot ${file.role}` }, [
       media,
@@ -325,9 +328,20 @@ function renderCards(group) {
 }
 
 const VIDEO_EXT = new Set([".mov", ".mp4", ".m4v", ".avi", ".mts", ".m2ts"]);
+const STILL_EXT = new Set([".cr2", ".cr3", ".nef", ".nrw", ".arw", ".srf", ".sr2", ".raf", ".orf", ".rw2", ".pef", ".dng", ".raw", ".rwl", ".3fr", ".fff", ".iiq", ".mrw", ".x3f", ".erf", ".k25", ".kdc", ".mef", ".mos", ".srw", ".jpg", ".jpeg", ".tif", ".tiff", ".heic", ".heif"]);
 
 function isVideoGroup(group) {
   return group.files.length > 0 && group.files.every((file) => VIDEO_EXT.has(file.ext));
+}
+
+function isOtherGroup(group) {
+  return group.files.length > 0 && group.files.every((file) => !VIDEO_EXT.has(file.ext) && !STILL_EXT.has(file.ext));
+}
+
+function listFor(group) {
+  if (isVideoGroup(group)) return ".video-list";
+  if (isOtherGroup(group)) return ".other-list";
+  return ".photo-list";
 }
 
 function visibleGroups() {
@@ -338,22 +352,28 @@ function ensureLists() {
   if (resultsEl.querySelector(".photo-list")) return;
   const split = h("div", { class: "media-split" });
   split.hidden = true;
-  resultsEl.append(h("div", { class: "photo-list" }), split, h("div", { class: "video-list" }));
+  const fileSplit = h("div", { class: "media-split file-split" });
+  fileSplit.hidden = true;
+  resultsEl.append(h("div", { class: "photo-list" }), split, h("div", { class: "video-list" }), fileSplit, h("div", { class: "other-list" }));
 }
 
 function refreshSplit() {
-  const split = resultsEl.querySelector(".media-split");
-  if (!split) return;
+  const split = resultsEl.querySelector(".media-split:not(.file-split)");
+  const fileSplit = resultsEl.querySelector(".file-split");
+  if (!split || !fileSplit) return;
   const photos = resultsEl.querySelector(".photo-list")?.childElementCount || 0;
   const videos = resultsEl.querySelector(".video-list")?.childElementCount || 0;
+  const others = resultsEl.querySelector(".other-list")?.childElementCount || 0;
   split.hidden = !(photos && videos);
+  fileSplit.hidden = !(others && (photos || videos));
 }
 
 function renderAll() {
   resultsEl.replaceChildren();
   const visible = visibleGroups();
-  const photos = visible.filter((group) => !isVideoGroup(group));
+  const photos = visible.filter((group) => !isVideoGroup(group) && !isOtherGroup(group));
   const videos = visible.filter((group) => isVideoGroup(group));
+  const others = visible.filter((group) => isOtherGroup(group));
   if (!state.groups.length) {
     resultsEl.append(h("p", { class: "empty", text: state.jobId && !state.running ? "没有找到重复文件。" : "重复项会按组列在这里。每组默认留下一份，其余标为删除。" }));
   } else if (!visible.length) {
@@ -362,8 +382,10 @@ function renderAll() {
     ensureLists();
     const photoList = resultsEl.querySelector(".photo-list");
     const videoList = resultsEl.querySelector(".video-list");
+    const otherList = resultsEl.querySelector(".other-list");
     for (const group of photos) photoList.append(renderGroup(group));
     for (const group of videos) videoList.append(renderGroup(group));
+    for (const group of others) otherList.append(renderGroup(group));
     refreshSplit();
   }
   updateTotals();
@@ -390,7 +412,7 @@ function upsertGroup(group) {
   else {
     if (resultsEl.querySelector(".empty")) resultsEl.replaceChildren();
     ensureLists();
-    const list = resultsEl.querySelector(isVideoGroup(group) ? ".video-list" : ".photo-list");
+    const list = resultsEl.querySelector(listFor(group));
     list.append(card);
   }
   refreshSplit();
@@ -502,6 +524,7 @@ async function scan() {
       matchWithoutTime: document.querySelector("#without-time").checked,
       similar: document.querySelector("#similar").checked,
       similarDistance: Number(document.querySelector("#similar-distance").value),
+      patterns: document.querySelector("#name-pattern").value,
     });
     state.jobId = data.jobId;
     listen(data.jobId);
@@ -685,6 +708,8 @@ if (saved.withoutTime != null) document.querySelector("#without-time").checked =
 if (saved.similar != null) document.querySelector("#similar").checked = saved.similar !== false;
 if (saved.similarDistance != null) document.querySelector("#similar-distance").value = saved.similarDistance;
 if (saved.sidecars != null) document.querySelector("#sidecars").checked = saved.sidecars !== false;
+if (typeof saved.namePattern === "string") document.querySelector("#name-pattern").value = saved.namePattern;
+document.querySelector("#name-pattern").addEventListener("change", save);
 
 let shared = { excludeDirs: [], minEdgePhoto: 0, minEdgeVideo: 0 };
 const excludeList = document.querySelector("#exclude-list");

@@ -6,6 +6,7 @@ import { spawn } from "node:child_process";
 import { Worker } from "node:worker_threads";
 import { fileURLToPath } from "node:url";
 import { extensionsFor } from "./extensions.js";
+import { compileNamePatterns } from "./patterns.js";
 import { applyDeletions } from "./delete.js";
 import { pickFolders, recyclePaths, revealPath } from "./picker.js";
 import { renderPreviewJpeg, renderVideoFrame } from "./preview.js";
@@ -376,8 +377,15 @@ function startJob(body) {
     applePhoto: Boolean(body.kinds?.applePhoto),
     video: Boolean(body.kinds?.video),
   })];
-  if (!extensions.length) {
-    const error = new Error("请至少选择一种文件类型");
+  let patterns = [];
+  try {
+    patterns = compileNamePatterns(body.patterns).list;
+  } catch (error) {
+    error.status = error.status || 400;
+    throw error;
+  }
+  if (!extensions.length && !patterns.length) {
+    const error = new Error("请至少选择一种文件类型，或填写文件名条件");
     error.status = 400;
     throw error;
   }
@@ -411,6 +419,7 @@ function startJob(body) {
     workerData: {
       roots: body.roots,
       extensions,
+      patterns,
       nameMode,
       toleranceSec: Math.min(120, Math.max(0, Number(body.toleranceSec) || 0)),
       matchWithoutTime: body.matchWithoutTime !== false,
