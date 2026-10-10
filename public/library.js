@@ -347,6 +347,7 @@ async function deletePhoto(photo) {
     const openPath = state.open >= 0 ? state.photos[state.open]?.path : "";
     state.photos = state.photos.filter((item) => !gone.has(item.path.toLowerCase()));
     if (openPath && gone.has(openPath.toLowerCase())) closeViewer();
+    else if (openPath) state.open = state.photos.findIndex((item) => item.path === openPath);
     renderMosaic(true);
     statusEl.textContent = gone.size > 1 ? "这两张已移入回收站。" : "已移入回收站。";
     await loadTree();
@@ -420,27 +421,21 @@ function finishRow(row) {
   }
 }
 
-function makeTile(photo, index) {
+function makeTile(photo) {
   const tile = h("div", { class: "tile", title: photo.name });
   tile.dataset.path = photo.path;
   tile.dataset.natural = String(naturalWidth(photo));
   tile.style.flex = "1 1 0";
   tile.style.setProperty("--row-h", `${rowHeight()}px`);
-  let visual;
-  const playable = state.kind === "video" && [".mp4", ".m4v", ".mov"].includes(String(photo.ext || "").toLowerCase());
-  if (state.kind === "video" && !playable) {
-    visual = h("div", { class: "video-fallback", text: String(photo.ext || "视频").replace(/^\./, "").toUpperCase() });
-  } else if (playable) {
-    visual = document.createElement("video");
-    visual.muted = true;
-    visual.preload = "metadata";
-    visual.src = `/api/library/media?path=${encodeURIComponent(photo.path)}#t=0.2`;
-    visual.addEventListener("error", () => tile.classList.add("broken"));
-  } else {
-    visual = h("img", { alt: photo.name, loading: "lazy" });
-    visual.src = `/api/library/thumb?path=${encodeURIComponent(photo.path)}`;
-    visual.addEventListener("error", () => tile.classList.add("broken"));
-  }
+  const visual = h("img", { alt: photo.name, loading: "lazy" });
+  visual.src = `/api/library/thumb?path=${encodeURIComponent(photo.path)}`;
+  visual.addEventListener("error", () => {
+    if (state.kind !== "video") {
+      tile.classList.add("broken");
+      return;
+    }
+    visual.replaceWith(h("div", { class: "video-fallback", text: String(photo.ext || "视频").replace(/^\./, "").toUpperCase() }));
+  });
   const tools = h("div", { class: "tile-tools" });
   const rate = h("div", { class: "rate" });
   const toggle = h("button", {
@@ -480,7 +475,10 @@ function makeTile(photo, index) {
   let timer = 0;
   tile.addEventListener("click", () => {
     clearTimeout(timer);
-    timer = setTimeout(() => openViewer(index), 220);
+    timer = setTimeout(() => {
+      const found = state.photos.findIndex((item) => item.path === photo.path);
+      if (found >= 0) openViewer(found);
+    }, 220);
   });
   tile.addEventListener("dblclick", (event) => {
     event.preventDefault();
@@ -498,7 +496,7 @@ function holdScroll() {
   }, 200);
 }
 
-function appendRange(start, end) {
+function appendRange(start, end, kept) {
   const size = perRow();
   let index = start;
   while (index < end) {
@@ -525,7 +523,7 @@ function appendRange(start, end) {
         row = h("div", { class: "row" });
         body.append(row);
       }
-      row.append(makeTile(photo, index));
+      row.append(kept?.get(photo.path) || makeTile(photo));
       index += 1;
     }
     if (row) finishRow(row);
@@ -536,6 +534,7 @@ function appendRange(start, end) {
 }
 
 function renderMosaic(keepScroll) {
+  const kept = new Map([...mosaicEl.querySelectorAll(".tile")].map((tile) => [tile.dataset.path, tile]));
   const top = keepScroll ? stageEl.scrollTop : 0;
   holdScroll();
   mosaicEl.replaceChildren();
@@ -561,7 +560,7 @@ function renderMosaic(keepScroll) {
     stageEl.scrollTop = 0;
     return;
   }
-  appendRange(0, state.photos.length);
+  appendRange(0, state.photos.length, kept);
   stageEl.scrollTop = top;
 }
 

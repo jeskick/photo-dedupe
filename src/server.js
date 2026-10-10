@@ -887,8 +887,9 @@ async function handle(req, res) {
         return;
       }
       const edge = url.pathname.endsWith("/view") ? 1600 : 480;
+      const render = VIDEO_TYPES[String(photo.ext || "").toLowerCase()] ? renderVideoFrame : renderPreviewJpeg;
       try {
-        const jpeg = await renderPreviewJpeg(photo.path, `${photo.size}:${photo.mtimeMs}`, edge);
+        const jpeg = await render(photo.path, `${photo.size}:${photo.mtimeMs}`, edge);
         res.writeHead(200, {
           "Content-Type": "image/jpeg",
           "Content-Length": jpeg.length,
