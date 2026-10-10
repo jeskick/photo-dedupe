@@ -377,15 +377,8 @@ function startJob(body) {
     applePhoto: Boolean(body.kinds?.applePhoto),
     video: Boolean(body.kinds?.video),
   })];
-  let patterns = [];
-  try {
-    patterns = compileNamePatterns(body.patterns).list;
-  } catch (error) {
-    error.status = error.status || 400;
-    throw error;
-  }
-  if (!extensions.length && !patterns.length) {
-    const error = new Error("请至少选择一种文件类型，或填写文件名条件");
+  if (!extensions.length) {
+    const error = new Error("请至少选择一种文件类型");
     error.status = 400;
     throw error;
   }
@@ -419,7 +412,6 @@ function startJob(body) {
     workerData: {
       roots: body.roots,
       extensions,
-      patterns,
       nameMode,
       toleranceSec: Math.min(120, Math.max(0, Number(body.toleranceSec) || 0)),
       matchWithoutTime: body.matchWithoutTime !== false,
@@ -451,6 +443,84 @@ function startJob(body) {
   worker.on("error", (error) => settle(job, "failed", { message: error.message }));
   worker.on("exit", (code) => {
     if (!job.settled && code !== 0) settle(job, "failed", { message: `扫描已中断 (${code})` });
+  });
+  return job;
+}
+
+function startSearch(body) {
+  const running = Boolean(runningJob()) || Boolean(libraryJob) || Boolean(recognizeJob);
+  if (running) {
+    const error = new Error("已有扫描在进行，请先停止或等待结束");
+    error.status = 409;
+    throw error;
+  }
+  let patterns = [];
+  try {
+    patterns = compileNamePatterns(body.patterns).list;
+  } catch (error) {
+    error.status = error.status || 400;
+    throw error;
+  }
+  if (!patterns.length) {
+    const error = new Error("请填写文件名，例如 *.zip 或 *kk*.pdf");
+    error.status = 400;
+    throw error;
+  }
+  if (!Array.isArray(body.roots) || !body.roots.length) {
+    const error = new Error("请先添加要搜索的文件夹");
+    error.status = 400;
+    throw error;
+  }
+  const sab = new SharedArrayBuffer(4);
+  const job = {
+    id: crypto.randomUUID(),
+    mode: "search",
+    status: "running",
+    settled: false,
+    groups: [],
+    files: [],
+    found: 0,
+    foundBytes: 0,
+    fileIndex: new Map(),
+    progress: { phase: "准备搜索", files: 0, dirs: 0, bytes: 0 },
+    summary: null,
+    error: null,
+    listeners: new Set(),
+    flag: new Int32Array(sab),
+    worker: null,
+  };
+  jobs.set(job.id, job);
+  const settings = librarySettings(photosDb());
+  const worker = new Worker(new URL("./search-worker.js", import.meta.url), {
+    workerData: {
+      roots: body.roots,
+      patterns,
+      excludeDirs: settings.excludeDirs,
+      sab,
+    },
+  });
+  job.worker = worker;
+  worker.on("message", (message) => {
+    if (message.type === "progress") {
+      job.progress = message.progress;
+      job.found = message.progress.files || 0;
+      job.foundBytes = message.progress.bytes || 0;
+      emit(job, "progress", message.progress);
+    } else if (message.type === "file") {
+      job.files.push(message.file);
+      emit(job, "file", message.file);
+    } else if (message.type === "done") {
+      job.summary = message.summary;
+      settle(job, "done", { summary: message.summary });
+    } else if (message.type === "cancelled") {
+      settle(job, "cancelled", { summary: { cancelled: true, files: job.found, bytes: job.foundBytes } });
+    } else if (message.type === "failed") {
+      settle(job, "failed", { message: message.message || "搜索失败" });
+    }
+  });
+  worker.on("error", (error) => settle(job, "failed", { message: error.message }));
+  worker.on("exit", (code) => {
+    if (!job.settled && code !== 0) settle(job, "failed", { message: `搜索已中断 (${code})` });
   });
   return job;
 }
@@ -583,6 +653,13 @@ async function handle(req, res) {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/search") {
+      const body = await readBody(req);
+      const job = startSearch(body);
+      sendJson(res, 200, { jobId: job.id });
+      return;
+    }
+
     const events = url.pathname.match(/^\/api\/jobs\/([^/]+)\/events$/);
     if (req.method === "GET" && events) {
       const job = jobs.get(events[1]);
@@ -597,7 +674,11 @@ async function handle(req, res) {
         "X-Content-Type-Options": "nosniff",
       });
       job.listeners.add(res);
-      for (const group of job.groups) res.write(`event: group\ndata: ${JSON.stringify(group)}\n\n`);
+      if (job.mode === "search") {
+        for (const file of job.files) res.write(`event: file\ndata: ${JSON.stringify(file)}\n\n`);
+      } else {
+        for (const group of job.groups) res.write(`event: group\ndata: ${JSON.stringify(group)}\n\n`);
+      }
       res.write(`event: progress\ndata: ${JSON.stringify(job.progress)}\n\n`);
       if (job.status === "done") res.write(`event: done\ndata: ${JSON.stringify(job.summary)}\n\n`);
       if (job.status === "cancelled") res.write(`event: cancelled\ndata: ${JSON.stringify({ cancelled: true, groups: job.groups.length })}\n\n`);

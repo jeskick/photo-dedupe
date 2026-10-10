@@ -239,31 +239,3 @@ test("排除目录里的副本不参与查重", async () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
-
-test("自定义文件名只找出内容相同的文件，夹着其他文件的目录仍跳过", async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "photo-dedupe-pattern-"));
-  const pdf = Buffer.from("%PDF-1.4 same-bytes");
-  write(path.join(dir, "docs", "report-kk.pdf"), pdf);
-  write(path.join(dir, "docs", "report-kk (1).pdf"), pdf);
-  write(path.join(dir, "docs", "other.pdf"), Buffer.from("%PDF-1.4 only-once"));
-  write(path.join(dir, "mixed", "report-kk.pdf"), pdf);
-  write(path.join(dir, "mixed", "report-kk (1).pdf"), pdf);
-  write(path.join(dir, "mixed", "notes.txt"), Buffer.from("notes"));
-  try {
-    const result = await runScan({
-      roots: [dir],
-      extensions: allKinds,
-      patterns: "*.pdf *kk*.pdf",
-      nameMode: "normalized",
-      toleranceSec: 0,
-      matchWithoutTime: true,
-      similar: true,
-    });
-    assert.equal(result.groups, 1);
-    assert.equal(result.found[0].kind, "exact");
-    assert.deepEqual(result.found[0].files.map((file) => file.name).sort(), ["report-kk (1).pdf", "report-kk.pdf"]);
-    assert.equal(result.found[0].files.some((file) => file.path.includes(`${path.sep}mixed${path.sep}`)), false);
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});

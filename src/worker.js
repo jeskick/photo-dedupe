@@ -7,7 +7,6 @@ try {
   const result = await runScan({
     roots: workerData.roots,
     extensions: new Set(workerData.extensions),
-    patterns: workerData.patterns || [],
     nameMode: workerData.nameMode,
     toleranceSec: workerData.toleranceSec,
     matchWithoutTime: workerData.matchWithoutTime,

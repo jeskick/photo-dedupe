@@ -28,9 +28,11 @@
         <label class="check"><input id="kind-apple" type="checkbox" checked>HEIC</label>
         <label class="check"><input id="kind-video" type="checkbox" checked>视频</label>
       </div>
-      <label class="stack" for="name-pattern">自定义文件名</label>
-      <input id="name-pattern" type="text" placeholder="*.pdf  *kk*.pdf" aria-label="自定义文件名" spellcheck="false">
-      <p class="note">用 * 表示任意文字，多个用空格分开。只找内容完全相同的重复，不比画面。这一层文件夹里如果还有对不上的其他文件，整段仍会跳过。</p>
+      <h2>搜索文件</h2>
+      <label class="stack" for="name-pattern">文件名</label>
+      <input id="name-pattern" type="text" placeholder="*.zip  *kk*.pdf" aria-label="搜索文件名" spellcheck="false">
+      <p class="note">用 * 表示任意文字，多个用空格分开。列出所有对上的文件，不查重、不比画面。软件目录和左侧排除的目录仍会跳过。</p>
+      <button id="find-files" type="button">搜索这些文件</button>
 
       <h2>跳过</h2>
       <label class="scan-line">长边小于

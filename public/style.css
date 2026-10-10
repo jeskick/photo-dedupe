@@ -177,6 +177,30 @@ label.stack, label.inline { display: block; margin: 0.7rem 0 0.3rem; color: var(
   gap: 0.28rem;
 }
 .photo-list, .video-list, .other-list { display: flex; flex-direction: column; gap: 0.28rem; }
+#find-files {
+  width: 100%;
+  margin-top: 0.55rem;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.55rem 0.95rem;
+  background: transparent;
+  color: var(--pine-dark, #1f6b45);
+  box-shadow: inset 0 0 0 1.5px currentColor;
+}
+#find-files:hover { background: rgba(47, 125, 79, 0.08); }
+.hit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 0.35rem 0.7rem;
+  align-items: center;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+.hit .name { font-weight: 650; overflow-wrap: anywhere; }
+.hit .path { grid-column: 1 / -1; color: var(--muted); font-size: 0.82rem; overflow-wrap: anywhere; }
+.results:has(.hit) { display: flex; flex-direction: column; gap: 0.35rem; }
 .media-split { height: 1px; margin: 0.2rem 0.15rem; background: var(--pine); flex: none; }
 .media-split[hidden] { display: none; }
 .empty { color: var(--muted); padding: 2rem 0.4rem; }
