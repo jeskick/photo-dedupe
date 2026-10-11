@@ -352,15 +352,25 @@ function queueMissing(photo) {
   missingTimer = setTimeout(flushMissing, 250);
 }
 
+function showNextAfter(openIndex, openPath, removed) {
+  if (!openPath) return;
+  if (removed.has(openPath.toLowerCase())) {
+    if (!state.photos.length) closeViewer();
+    else openViewer(Math.min(Math.max(openIndex, 0), state.photos.length - 1));
+    return;
+  }
+  state.open = state.photos.findIndex((item) => item.path === openPath);
+}
+
 function flushMissing() {
   const gone = new Set(missingPaths);
   missingPaths.clear();
   if (!gone.size) return;
+  const openIndex = state.open;
   const openPath = state.open >= 0 ? state.photos[state.open]?.path : "";
   state.photos = state.photos.filter((item) => !gone.has(item.path.toLowerCase()));
-  if (openPath && gone.has(openPath.toLowerCase())) closeViewer();
-  else if (openPath) state.open = state.photos.findIndex((item) => item.path === openPath);
   renderMosaic(true);
+  showNextAfter(openIndex, openPath, gone);
   statusEl.textContent = gone.size > 1
     ? `已去掉 ${gone.size} 张原位置已经没有的照片。`
     : "原位置已经没有的照片已从库里去掉。";
@@ -386,11 +396,11 @@ async function deletePhoto(photo) {
       return;
     }
     const gone = new Set((data.deleted || []).map((item) => item.toLowerCase()));
+    const openIndex = state.open;
     const openPath = state.open >= 0 ? state.photos[state.open]?.path : "";
     state.photos = state.photos.filter((item) => !gone.has(item.path.toLowerCase()));
-    if (openPath && gone.has(openPath.toLowerCase())) closeViewer();
-    else if (openPath) state.open = state.photos.findIndex((item) => item.path === openPath);
     renderMosaic(true);
+    showNextAfter(openIndex, openPath, gone);
     statusEl.textContent = gone.size > 1 ? "这两张已移入回收站。" : "已移入回收站。";
     await loadTree();
     await loadMarks();
@@ -1071,9 +1081,11 @@ async function watchRecognize() {
   const tick = async () => {
     const data = await refreshQuiet();
     const recognizeBtn = document.querySelector("#recognize");
+    const recognizeNew = document.querySelector("#recognize-new");
     const recognizeStop = document.querySelector("#recognize-stop");
     const running = Boolean(data.recognizing);
     recognizeBtn.hidden = running;
+    recognizeNew.hidden = running;
     recognizeStop.hidden = !running;
     const note = document.querySelector("#recognize-status");
     if (running && data.recognize) {
@@ -1100,11 +1112,11 @@ async function watchRecognize() {
   await tick();
 }
 
-async function startRecognizeRequest(filePath) {
+async function startRecognizeRequest(filePath, onlyNew = false) {
   const response = await fetch("/api/library/recognize", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(filePath ? { path: filePath } : {}),
+    body: JSON.stringify(filePath ? { path: filePath } : { onlyNew }),
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -1112,15 +1124,24 @@ async function startRecognizeRequest(filePath) {
     return;
   }
   document.querySelector("#recognize").hidden = true;
+  document.querySelector("#recognize-new").hidden = true;
   document.querySelector("#recognize-stop").hidden = false;
-  const text = `先把 ${data.total} 张分成风景和人物，再只认有人的照片。`;
+  const text = onlyNew
+    ? `只识别新收录的 ${data.total} 张。已经标记过的会跳过。`
+    : `先把 ${data.total} 张分成风景和人物，再只认有人的照片。`;
   statusEl.textContent = text;
   const note = document.querySelector("#recognize-status");
   if (note) note.textContent = text;
   watchRecognize();
 }
 
+const recognizeNew = document.createElement("button");
+recognizeNew.id = "recognize-new";
+recognizeNew.type = "button";
+recognizeNew.textContent = "只识别新照片";
+document.querySelector("#recognize").after(recognizeNew);
 document.querySelector("#recognize").addEventListener("click", () => startRecognizeRequest());
+recognizeNew.addEventListener("click", () => startRecognizeRequest("", true));
 document.querySelector("#recognize-stop").addEventListener("click", () => {
   fetch("/api/library/recognize/cancel", { method: "POST" });
 });
@@ -1336,6 +1357,38 @@ window.addEventListener("keydown", (event) => {
     deletePhoto(photo);
   }
 });
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") return;
+  syncLibrary();
+});
+
+async function syncLibrary() {
+  const paths = state.photos.map((photo) => photo.path);
+  if (paths.length) {
+    const response = await fetch("/api/library/present", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paths }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (response.ok) {
+      const keep = new Set((data.paths || []).map((item) => item.toLowerCase()));
+      const openIndex = state.open;
+      const openPath = state.open >= 0 ? state.photos[state.open]?.path : "";
+      const next = state.photos.filter((photo) => keep.has(photo.path.toLowerCase()));
+      if (next.length !== state.photos.length) {
+        const gone = new Set(state.photos.filter((photo) => !keep.has(photo.path.toLowerCase())).map((photo) => photo.path.toLowerCase()));
+        state.photos = next;
+        renderMosaic(true);
+        showNextAfter(openIndex, openPath, gone);
+      }
+    }
+  }
+  await loadTree();
+  await loadMarks();
+  await refreshQuiet();
+}
 
 loadSettings().then(() => refreshQuiet()).then(async (data) => {
   if (!data.recognizing && !data.scanning && data.summary?.finishedAt) {

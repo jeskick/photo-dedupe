@@ -267,9 +267,9 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .names { display: flex; flex-direction: column; gap: 2px; margin: 6px 0; max-height: min(420px, 48vh); overflow: auto; }
 #recognize-status { min-height: 0; margin: 8px 0 0; font-variant-numeric: tabular-nums; }
 #recognize-status:empty { display: none; }
-#recognize, #recognize-stop { width: 100%; margin-top: 6px; border: 0; border-radius: 999px; padding: 10px 14px; }
-#recognize { background: var(--blue); color: white; }
-#recognize:hover { background: #1765cc; }
+#recognize, #recognize-new, #recognize-stop { width: 100%; margin-top: 6px; border: 0; border-radius: 999px; padding: 10px 14px; }
+#recognize, #recognize-new { background: var(--blue); color: white; }
+#recognize:hover, #recognize-new:hover { background: #1765cc; }
 .names button { text-align: left; background: transparent; color: #d7dadf; border: 0; border-radius: 6px; padding: 4px 8px; cursor: pointer; }
 .names button.active, .ratings button.active { background: rgba(255,255,255,0.1); }
 .names button:hover { background: rgba(255,255,255,0.06); }

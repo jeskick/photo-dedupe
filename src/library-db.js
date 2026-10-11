@@ -80,6 +80,14 @@ export function openLibrary(dbPath) {
     db.exec("ALTER TABLE faces ADD COLUMN person_id INTEGER NOT NULL DEFAULT 0");
   }
   db.exec("CREATE INDEX IF NOT EXISTS faces_person ON faces(person_id)");
+  const photoColumns = db.prepare("PRAGMA table_info(photos)").all();
+  if (!photoColumns.some((column) => column.name === "recognized")) {
+    db.exec("ALTER TABLE photos ADD COLUMN recognized INTEGER NOT NULL DEFAULT 0");
+    db.exec(`
+      UPDATE photos SET recognized = 1
+      WHERE path IN (SELECT path FROM faces UNION SELECT path FROM labels)
+    `);
+  }
   return db;
 }
 
@@ -363,6 +371,24 @@ export function loadPeople(db) {
 
 export function libraryPhotoPaths(db) {
   return db.prepare("SELECT path FROM photos WHERE kind = 'photo' ORDER BY capture_ms DESC").all().map((row) => row.path);
+}
+
+export function unrecognizedPhotoPaths(db) {
+  return db.prepare("SELECT path FROM photos WHERE kind = 'photo' AND recognized = 0 ORDER BY capture_ms DESC").all().map((row) => row.path);
+}
+
+export function markRecognized(db, filePath) {
+  db.prepare("UPDATE photos SET recognized = 1 WHERE path = ?").run(filePath);
+}
+
+export function presentPaths(db, paths) {
+  const lookup = db.prepare("SELECT path FROM photos WHERE path = ? COLLATE NOCASE");
+  const found = [];
+  for (const raw of (paths || []).slice(0, 500)) {
+    const row = lookup.get(path.resolve(String(raw || "")));
+    if (row) found.push(row.path);
+  }
+  return found;
 }
 
 export function fileIsGone(filePath) {

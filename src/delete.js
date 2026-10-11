@@ -136,6 +136,34 @@ export async function planDeletions(job, { includeSidecars = true } = {}) {
   return { deletions, skipped };
 }
 
+export function removePathsFromJob(job, paths) {
+  const deletedKeys = new Set((paths || []).map((item) => path.resolve(String(item || "")).toLowerCase()).filter(Boolean));
+  if (!job?.groups || !deletedKeys.size) return [];
+  const removed = [];
+  for (const group of job.groups) {
+    const before = group.files.length;
+    group.files = group.files.filter((file) => {
+      if (!deletedKeys.has(String(file.pathKey || "").toLowerCase())) return true;
+      removed.push(file.path);
+      return false;
+    });
+    if (group.files.length === before) continue;
+    group.wasted = group.files.reduce((sum, file) => sum + (file.role === "delete" ? file.size : 0), 0);
+    if (!group.files.some((file) => file.role === "keep") && group.files.length) {
+      group.files[0].role = "keep";
+      for (let index = 1; index < group.files.length; index += 1) {
+        if (group.files[index].role === "keep") group.files[index].role = "delete";
+      }
+    }
+  }
+  job.groups = job.groups.filter((group) => group.files.length >= 2);
+  job.fileIndex = new Map();
+  for (const group of job.groups) {
+    for (const file of group.files) job.fileIndex.set(file.pathKey, file);
+  }
+  return removed;
+}
+
 export async function applyDeletions(job, options = {}) {
   const { deletions, skipped } = await planDeletions(job, options);
   if (!deletions.length) return { deleted: [], sidecars: [], skipped, freedBytes: 0 };
@@ -148,23 +176,8 @@ export async function applyDeletions(job, options = {}) {
     if (result?.ok) deleted.push(item);
     else failed.push({ path: item.path, error: result?.error || "移入回收站失败" });
   }
-  const deletedKeys = new Set(deleted.map((item) => item.pathKey));
   const freedBytes = deleted.reduce((sum, item) => sum + item.size, 0);
-  for (const group of job.groups) {
-    group.files = group.files.filter((file) => !deletedKeys.has(file.pathKey));
-    group.wasted = group.files.reduce((sum, file) => sum + (file.role === "delete" ? file.size : 0), 0);
-    if (!group.files.some((file) => file.role === "keep") && group.files.length) {
-      group.files[0].role = "keep";
-      for (let i = 1; i < group.files.length; i += 1) {
-        if (group.files[i].role === "keep") group.files[i].role = "delete";
-      }
-    }
-  }
-  job.groups = job.groups.filter((group) => group.files.length >= 2);
-  job.fileIndex = new Map();
-  for (const group of job.groups) {
-    for (const file of group.files) job.fileIndex.set(file.pathKey, file);
-  }
+  removePathsFromJob(job, deleted.map((item) => item.path));
 
   const sidecarPaths = [...new Set(deleted.flatMap((item) => item.sidecars))];
   let sidecars = [];

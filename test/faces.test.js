@@ -4,7 +4,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { bestName, bestPerson, clusterPeople, facesToRename, linkBackViews, mainSubjects } from "../src/faces.js";
-import { fileIsGone, forgetMissingPhotos, libraryMarks, libraryPhoto, loadPeople, openLibrary, photoFaces, purgeScan, queryPhotos, removePhotos, renameFace, saveRecognition, setRating, upsertPhotos } from "../src/library-db.js";
+import { fileIsGone, forgetMissingPhotos, libraryMarks, libraryPhoto, loadPeople, markRecognized, openLibrary, photoFaces, purgeScan, queryPhotos, removePhotos, renameFace, saveRecognition, setRating, unrecognizedPhotoPaths, upsertPhotos } from "../src/library-db.js";
+import { removePathsFromJob } from "../src/delete.js";
 
 test("相似的脸用同一个名字，差得远的不会带上", () => {
   const named = [{ name: "小明", embedding: [1, 0, 0] }];
@@ -36,6 +37,47 @@ test("保存识别时同一个人只记最大的脸", () => {
     { embedding: [0, 1, 0], area: 400 },
   ], ["person"], []);
   assert.equal(photoFaces(db, photo).length, 2);
+  db.close();
+});
+
+test("只列出还没识别过的照片，删掉的文件也会从查重组里去掉", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "photo-new-"));
+  const db = openLibrary(path.join(dir, "library.sqlite"));
+  const base = {
+    ext: ".jpg",
+    size: 1,
+    mtimeMs: 1,
+    captureMs: 1,
+    year: 2020,
+    month: 1,
+    day: 2,
+    kind: "photo",
+    width: 800,
+    height: 600,
+    dir,
+  };
+  const done = path.join(dir, "done.jpg");
+  const fresh = path.join(dir, "fresh.jpg");
+  upsertPhotos(db, [
+    { ...base, path: done, name: "done.jpg" },
+    { ...base, path: fresh, name: "fresh.jpg", captureMs: 2 },
+  ], 1);
+  saveRecognition(db, done, [[1, 0, 0]], ["person"], []);
+  markRecognized(db, done);
+  assert.deepEqual(unrecognizedPhotoPaths(db), [fresh]);
+  const job = {
+    groups: [{
+      id: "g",
+      files: [
+        { path: done, pathKey: done.toLowerCase(), role: "keep", size: 1 },
+        { path: fresh, pathKey: fresh.toLowerCase(), role: "delete", size: 1 },
+      ],
+      wasted: 1,
+    }],
+    fileIndex: new Map(),
+  };
+  removePathsFromJob(job, [fresh]);
+  assert.equal(job.groups.length, 0);
   db.close();
 });
 

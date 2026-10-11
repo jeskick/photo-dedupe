@@ -7,11 +7,11 @@ import { Worker } from "node:worker_threads";
 import { fileURLToPath } from "node:url";
 import { extensionsFor } from "./extensions.js";
 import { compileNamePatterns } from "./patterns.js";
-import { applyDeletions } from "./delete.js";
+import { applyDeletions, removePathsFromJob } from "./delete.js";
 import { pickFolders, recyclePaths, revealPath } from "./picker.js";
 import { renderPreviewJpeg, renderVideoFrame } from "./preview.js";
 import { listDrives, pairedCameraPaths } from "./library-scan.js";
-import { ensurePeopleClusters, forgetMissingPhotos, libraryCount, libraryKindTotals, libraryMarks, libraryMeta, libraryPhoto, libraryPhotoPaths, librarySettings, libraryTree, loadPeople, openLibrary, photoFaces, prepareRecognition, purgeScan, queryPhotos, removePhotos, renameFace, renamePerson, saveLibrarySettings, saveRecognition, setLibraryMeta, setRating, upsertPhotos } from "./library-db.js";
+import { ensurePeopleClusters, forgetMissingPhotos, libraryCount, libraryKindTotals, libraryMarks, libraryMeta, libraryPhoto, libraryPhotoPaths, librarySettings, libraryTree, loadPeople, markRecognized, openLibrary, photoFaces, prepareRecognition, presentPaths, purgeScan, queryPhotos, removePhotos, renameFace, renamePerson, saveLibrarySettings, saveRecognition, setLibraryMeta, setRating, unrecognizedPhotoPaths, upsertPhotos } from "./library-db.js";
 import { describePhoto, readPhotoFacts } from "./photo-info.js";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, "..", "public");
@@ -150,13 +150,25 @@ function startLibraryScan(kind) {
   return { roots, scanId };
 }
 
-function startRecognize(onlyPath) {
+function syncDeleted(paths) {
+  const cleaned = [...new Set((paths || []).map((item) => path.resolve(String(item || ""))).filter(Boolean))];
+  if (!cleaned.length) return;
+  removePhotos(photosDb(), cleaned);
+  for (const job of jobs.values()) removePathsFromJob(job, cleaned);
+}
+
+function startRecognize(onlyPath, onlyNew = false) {
   if (runningJob() || libraryJob || recognizeJob) {
     const error = new Error("已有扫描在进行，请先停止或等待结束");
     error.status = 409;
     throw error;
   }
-  const paths = onlyPath ? [onlyPath] : libraryPhotoPaths(photosDb());
+  const paths = onlyPath ? [onlyPath] : (onlyNew ? unrecognizedPhotoPaths(photosDb()) : libraryPhotoPaths(photosDb()));
+  if (!onlyPath && onlyNew && !paths.length) {
+    const error = new Error("没有新收录的照片");
+    error.status = 400;
+    throw error;
+  }
   if (onlyPath && !libraryPhoto(photosDb(), onlyPath)) {
     const error = new Error("照片不在库里");
     error.status = 404;
@@ -193,6 +205,8 @@ function startRecognize(onlyPath) {
       const item = message.item || {};
       if (item.path && !item.error) {
         saveRecognition(photosDb(), item.path, item.faces || [], item.labels || [], recognizeJob.people);
+        const waitingForFace = item.pass !== "face" && (item.labels || []).includes("person");
+        if (!waitingForFace) markRecognized(photosDb(), item.path);
       }
       if (item.pass === "face") {
         recognizeJob.progress = {
@@ -725,6 +739,11 @@ async function handle(req, res) {
         }
         const body = await readBody(req);
         const result = await applyDeletions(job, { includeSidecars: body.includeSidecars !== false });
+        const deletedPaths = result.deleted.map((item) => item.path);
+        if (deletedPaths.length) removePhotos(photosDb(), deletedPaths);
+        for (const other of jobs.values()) {
+          if (other !== job) removePathsFromJob(other, deletedPaths);
+        }
         sendJson(res, 200, {
           deleted: result.deleted.map((item) => item.path),
           freedBytes: result.freedBytes,
@@ -743,6 +762,10 @@ async function handle(req, res) {
           "Cache-Control": "no-store",
         });
         res.end(csv);
+        return;
+      }
+      if (req.method === "GET" && action === "groups") {
+        sendJson(res, 200, { groups: job.groups });
         return;
       }
       if (req.method === "GET" && action === "preview") {
@@ -847,10 +870,16 @@ async function handle(req, res) {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/library/present") {
+      const body = await readBody(req);
+      sendJson(res, 200, { paths: presentPaths(photosDb(), body.paths) });
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/library/recognize") {
       const body = await readBody(req);
       const onlyPath = body.path ? path.resolve(String(body.path)) : "";
-      const started = startRecognize(onlyPath);
+      const started = startRecognize(onlyPath, body.onlyNew === true);
       sendJson(res, 200, started);
       return;
     }
@@ -900,14 +929,14 @@ async function handle(req, res) {
         return;
       }
       if (!paths.length) {
-        removePhotos(photosDb(), [photo.path]);
+        syncDeleted([photo.path]);
         sendJson(res, 200, { deleted: [photo.path], missing: true });
         return;
       }
       const results = await recyclePaths(paths);
       const deleted = results.filter((item) => item.ok).map((item) => item.path);
       const failed = results.filter((item) => !item.ok);
-      if (deleted.length) removePhotos(photosDb(), deleted);
+      if (deleted.length) syncDeleted(deleted);
       if (!deleted.length) {
         sendJson(res, 500, { deleted, failed, error: failed[0]?.error || "没能移入回收站" });
         return;
@@ -951,6 +980,7 @@ async function handle(req, res) {
       const photo = libraryPhoto(photosDb(), path.resolve(String(url.searchParams.get("path") || "")));
       const type = VIDEO_TYPES[String(photo?.ext || "").toLowerCase()];
       if (photo && forgetMissingPhotos(photosDb(), [photo.path]).length) {
+        for (const job of jobs.values()) removePathsFromJob(job, [photo.path]);
         sendJson(res, 404, { error: "文件已经不在原处", missing: true });
         return;
       }
@@ -976,6 +1006,7 @@ async function handle(req, res) {
     if (req.method === "GET" && (url.pathname === "/api/library/thumb" || url.pathname === "/api/library/view")) {
       const photo = libraryPhoto(photosDb(), path.resolve(String(url.searchParams.get("path") || "")));
       if (photo && forgetMissingPhotos(photosDb(), [photo.path]).length) {
+        for (const job of jobs.values()) removePathsFromJob(job, [photo.path]);
         sendJson(res, 404, { error: "文件已经不在原处", missing: true });
         return;
       }

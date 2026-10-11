@@ -747,6 +747,25 @@ document.querySelector("#toggle-open").addEventListener("click", () => {
   for (const group of state.groups) group.open = state.expandAll;
   renderAll();
 });
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible" || !state.jobId || state.running) return;
+  fetch(`/api/jobs/${state.jobId}/groups`)
+    .then((response) => response.json())
+    .then((data) => {
+      if (!Array.isArray(data.groups)) return;
+      const previous = new Map(state.groups.map((group) => [group.id, group]));
+      state.groups = data.groups.map((group) => {
+        const old = previous.get(group.id);
+        if (old) {
+          group.open = old.open;
+          group.showPreview = old.showPreview;
+        }
+        return group;
+      });
+      renderAll();
+    })
+    .catch(() => {});
+});
 document.querySelector("#scan").addEventListener("click", scan);
 document.querySelector("#stop").addEventListener("click", () => {
   setStatus("正在停止…");
