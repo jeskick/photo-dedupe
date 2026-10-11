@@ -642,7 +642,19 @@ resultsEl.addEventListener("change", (event) => {
 
 resultsEl.addEventListener("click", (event) => {
   const button = event.target.closest("button");
-  if (!button || !state.jobId) return;
+  if (!state.jobId) return;
+  if (!button) {
+    const header = event.target.closest(".group > header");
+    if (!header || event.target.closest("input, label")) return;
+    const card = header.closest(".group");
+    const group = state.groups.find((item) => item.id === card?.dataset.id);
+    if (!group) return;
+    const opening = !group.showPreview;
+    group.showPreview = opening;
+    group.open = opening;
+    card.replaceWith(renderGroup(group));
+    return;
+  }
   if (button.dataset.action === "toggle") {
     const card = button.closest(".group");
     const group = state.groups.find((item) => item.id === card?.dataset.id);
