@@ -223,19 +223,67 @@ export function subnetHosts(addresses) {
 
 export function chooseCastDevices(launchers, renderers, androidHosts = []) {
   const ready = (launchers || []).filter(Boolean);
-  if (ready.length) return ready;
   const android = new Set(androidHosts);
-  const picked = [];
+  const systems = [];
   const seen = new Set();
   for (const device of renderers || []) {
     let host = "";
     try { host = new URL(device.controlUrl).hostname; } catch { host = ""; }
     if (!host || !android.has(host) || seen.has(host)) continue;
     seen.add(host);
-    picked.push({ ...device, host, kind: "android", name: "索尼电视" });
+    systems.push({ ...device, host, kind: "android", name: "索尼电视" });
   }
-  if (picked.length) return picked;
-  return (renderers || []).map((device) => ({ ...device, kind: "dlna" }));
+  return [...ready, ...systems];
+}
+
+export function bitrateFromBoxes(buf, size) {
+  const data = Buffer.isBuffer(buf) ? buf : Buffer.from(buf || []);
+  for (let index = 0; index + 28 < data.length; index += 1) {
+    if (data.toString("latin1", index, index + 4) !== "mvhd") continue;
+    const version = data[index + 4];
+    let timescale = 0;
+    let duration = 0;
+    if (version === 0) {
+      timescale = data.readUInt32BE(index + 16);
+      duration = data.readUInt32BE(index + 20);
+    } else if (version === 1 && index + 36 < data.length) {
+      timescale = data.readUInt32BE(index + 24);
+      duration = Number(data.readBigUInt64BE(index + 28));
+    }
+    if (!timescale || !duration) continue;
+    const seconds = duration / timescale;
+    if (seconds < 0.1 || seconds > 86400) continue;
+    return Math.round(Number(size) * 8 / seconds);
+  }
+  return 0;
+}
+
+export function formatBitrate(bits) {
+  const value = Number(bits) || 0;
+  if (value < 1000) return "";
+  const kbps = value / 1000;
+  if (kbps >= 1000) return `${(kbps / 1000).toFixed(1)} Mbps`;
+  return `${Math.round(kbps)} kbps`;
+}
+
+export function videoBitrate(filePath) {
+  const stat = fs.statSync(filePath);
+  const readAt = (start, length) => {
+    const fd = fs.openSync(filePath, "r");
+    try {
+      const buf = Buffer.alloc(length);
+      const got = fs.readSync(fd, buf, 0, length, start);
+      return buf.subarray(0, got);
+    } finally {
+      fs.closeSync(fd);
+    }
+  };
+  const headLen = Math.min(stat.size, 512 * 1024);
+  const head = bitrateFromBoxes(readAt(0, headLen), stat.size);
+  if (head) return head;
+  if (stat.size <= headLen) return 0;
+  const tailLen = Math.min(stat.size, 2 * 1024 * 1024);
+  return bitrateFromBoxes(readAt(stat.size - tailLen, tailLen), stat.size);
 }
 
 function adbExecutable() {
@@ -473,13 +521,16 @@ export async function discoverScreens(addresses) {
     discoverRenderers(),
     discoverLaunchers(subnetHosts(addresses)),
   ]);
-  if (launchers.length) return launchers;
-  const hosts = [...new Set(renderers.map((device) => {
-    try { return new URL(device.controlUrl).hostname; } catch { return ""; }
-  }).filter(Boolean))];
+  const hosts = new Set();
+  for (const device of renderers) {
+    try { hosts.add(new URL(device.controlUrl).hostname); } catch { /* skip */ }
+  }
+  for (const device of launchers) {
+    if (device.host) hosts.add(device.host);
+  }
   const android = [];
-  await Promise.all(hosts.map(async (host) => {
+  await Promise.all([...hosts].map(async (host) => {
     if (await portOpen(host, 5555, 700)) android.push(host);
   }));
-  return chooseCastDevices([], renderers, android);
+  return chooseCastDevices(launchers, renderers, android);
 }

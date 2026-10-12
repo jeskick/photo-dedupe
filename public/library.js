@@ -311,6 +311,7 @@ function castIcon() {
   return svg;
 }
 
+let castDevices = [];
 let castDevice = null;
 
 function castButton(photo) {
@@ -356,13 +357,26 @@ function applyCastButtons() {
   }
 }
 
+function chooseCastDevice(devices) {
+  const saved = localStorage.getItem("photo-cast-device") || "";
+  return devices.find((item) => item.id === saved) || devices.find((item) => String(item.id || "").startsWith("launcher:")) || devices[0] || null;
+}
+
 async function refreshCastDevices() {
   try {
     const response = await fetch("/api/cast/devices");
     const data = await response.json().catch(() => ({}));
-    castDevice = response.ok ? (data.devices || [])[0] || null : null;
+    castDevices = response.ok ? data.devices || [] : [];
   } catch {
-    castDevice = null;
+    castDevices = [];
+  }
+  castDevice = chooseCastDevice(castDevices);
+  const line = document.querySelector("#cast-line");
+  const select = document.querySelector("#cast-device");
+  if (line && select) {
+    line.hidden = castDevices.length === 0;
+    select.replaceChildren(...castDevices.map((item) => h("option", { value: item.id, text: item.name })));
+    if (castDevice) select.value = castDevice.id;
   }
   applyCastButtons();
 }
@@ -1512,6 +1526,11 @@ loadSettings().then(() => refreshQuiet()).then(async (data) => {
   }
   await loadMarks();
   await loadTree();
+  document.querySelector("#cast-device")?.addEventListener("change", (event) => {
+    localStorage.setItem("photo-cast-device", event.target.value);
+    castDevice = castDevices.find((item) => item.id === event.target.value) || castDevice;
+    applyCastButtons();
+  });
   refreshCastDevices();
   await loadPhotos(true);
   if (data.recognizing) watchRecognize();

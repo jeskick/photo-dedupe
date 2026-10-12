@@ -13,7 +13,7 @@ import { renderPreviewJpeg, renderVideoFrame } from "./preview.js";
 import { listDrives, pairedCameraPaths } from "./library-scan.js";
 import { ensurePeopleClusters, forgetMissingPhotos, libraryCount, libraryKindTotals, libraryMarks, libraryMeta, libraryPhoto, libraryPhotoPaths, librarySettings, libraryTree, loadPeople, markRecognized, openLibrary, photoFaces, prepareRecognition, presentPaths, purgeScan, queryPhotos, removePhotos, renameFace, renamePerson, saveLibrarySettings, saveRecognition, setLibraryMeta, setRating, unrecognizedPhotoPaths, upsertPhotos } from "./library-db.js";
 import { describePhoto, readPhotoFacts } from "./photo-info.js";
-import { castPlan, castTicket, discoverScreens, dlnaHeaders, lanHostFor, pushMedia, rememberCast, rememberPlaylist, stepPlaylist } from "./cast.js";
+import { castPlan, castTicket, discoverScreens, dlnaHeaders, formatBitrate, lanHostFor, pushMedia, rememberCast, rememberPlaylist, stepPlaylist, videoBitrate } from "./cast.js";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, "..", "public");
 const libraryDbPath = process.env.LIBRARY_DB || path.join(here, "..", "data", "library.sqlite");
@@ -352,6 +352,45 @@ function sendBytes(req, res, buffer, type) {
     "Content-Length": slice.length,
   });
   res.end(slice);
+}
+
+function formatWhen(ms) {
+  const time = Number(ms);
+  if (!time) return "";
+  const date = new Date(time);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function formatBytes(size) {
+  const bytes = Number(size) || 0;
+  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(2)} GB`;
+  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(1)} MB`;
+  if (bytes >= 1e3) return `${Math.round(bytes / 1e3)} KB`;
+  return `${bytes} B`;
+}
+
+const bitrateCache = new Map();
+
+function castMeta(photo) {
+  const width = Number(photo.width) || 0;
+  const height = Number(photo.height) || 0;
+  let bitrate = "";
+  if (castPlan(photo.ext).kind === "video") {
+    const key = `${photo.path}:${photo.size}`;
+    if (!bitrateCache.has(key)) {
+      try { bitrateCache.set(key, videoBitrate(photo.path)); } catch { bitrateCache.set(key, 0); }
+    }
+    bitrate = formatBitrate(bitrateCache.get(key));
+  }
+  return {
+    name: photo.name || "",
+    when: formatWhen(photo.captureMs),
+    size: formatBytes(photo.size),
+    resolution: width && height ? `${width}×${height}` : "",
+    bitrate,
+  };
 }
 
 function castPaths(filter) {
@@ -1127,6 +1166,18 @@ async function handle(req, res) {
       return;
     }
 
+    if (req.method === "GET" && url.pathname.startsWith("/api/cast/meta/")) {
+      const leaf = decodeURIComponent(url.pathname.slice("/api/cast/meta/".length)).replace(/\..*$/, "");
+      const ticket = castTicket(leaf);
+      const photo = ticket ? libraryPhoto(photosDb(), ticket.path) : null;
+      if (!photo) {
+        sendJson(res, 404, { error: "这组投屏已经结束" });
+        return;
+      }
+      sendJson(res, 200, castMeta(photo));
+      return;
+    }
+
     if (req.method === "GET" && url.pathname.startsWith("/api/cast/step/")) {
       const session = decodeURIComponent(url.pathname.slice("/api/cast/step/".length));
       const dir = url.searchParams.get("dir") === "prev" ? "prev" : "next";
@@ -1164,6 +1215,7 @@ async function handle(req, res) {
         url: `${nextBase}/api/cast/file/${nextToken}${nextPlan.suffix}`,
         kind: nextPlan.kind,
         edge: moved.edge,
+        meta: castMeta(next),
       });
       return;
     }

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { castPlan, castTicket, chooseCastDevices, lanHostFor, parseLauncherInfo, parseRendererDescription, rememberCast, rememberPlaylist, soapBody, stepPlaylist, subnetHosts } from "../src/cast.js";
+import { bitrateFromBoxes, castPlan, castTicket, chooseCastDevices, formatBitrate, lanHostFor, parseLauncherInfo, parseRendererDescription, rememberCast, rememberPlaylist, soapBody, stepPlaylist, subnetHosts } from "../src/cast.js";
 
 const renderer = `<?xml version="1.0"?>
 <root>
@@ -51,13 +51,27 @@ test("桌面启动器优先于只应答不显示的投屏服务", () => {
   assert.equal(launcher.packageName, "com.kk.tvlauncher");
   assert.equal(parseLauncherInfo('{"ok":false}', "192.168.8.223"), null);
   const dlna = { id: "bili", name: "我的小电视", controlUrl: "http://192.168.8.223:9958/bilibili/control.xml" };
-  assert.equal(chooseCastDevices([launcher], [dlna])[0].kind, "launcher");
+  const picked = chooseCastDevices([launcher], [dlna], ["192.168.8.223"]);
+  assert.equal(picked[0].kind, "launcher");
+  assert.equal(picked[1].kind, "android");
+  assert.equal(picked[1].name, "索尼电视");
   assert.equal(chooseCastDevices([], [dlna], ["192.168.8.223"])[0].kind, "android");
+  assert.equal(chooseCastDevices([], [dlna]).length, 0);
   assert.equal(subnetHosts(["192.168.8.147"]).includes("192.168.8.223"), true);
   assert.equal(subnetHosts(["127.0.0.1"]).length, 0);
 });
 
-test("遥控器左右键在当前这组照片里移动", () => {
+test("从 mvhd 算出视频码率", () => {
+  const box = Buffer.alloc(40);
+  box.write("mvhd", 0);
+  box.writeUInt32BE(1000, 16);
+  box.writeUInt32BE(8000, 20);
+  assert.equal(bitrateFromBoxes(box, 1_000_000), 1_000_000);
+  assert.equal(formatBitrate(18_400_000), "18.4 Mbps");
+  assert.equal(formatBitrate(0), "");
+});
+
+test("遥控器上下键在当前这组照片里移动", () => {
   const token = rememberPlaylist(["a.jpg", "b.jpg", "c.jpg"], 1);
   assert.equal(stepPlaylist(token, "prev").path, "a.jpg");
   assert.equal(stepPlaylist(token, "prev").edge, true);

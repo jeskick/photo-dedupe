@@ -123,6 +123,9 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .ratings button.on { background: rgba(251, 188, 4, 0.18); color: #fbbc04; }
 #origins button.on { background: rgba(138, 180, 248, 0.16); color: var(--blue-2); }
 .scan-line { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; color: var(--muted); font-size: 12px; }
+#cast-line { padding: 8px 10px 0; }
+#cast-line[hidden] { display: none; }
+#cast-line select { flex: 1; min-width: 0; }
 .scan-line select {
   border: 0;
   border-radius: 8px;
