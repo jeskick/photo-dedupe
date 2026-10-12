@@ -367,6 +367,27 @@ async function refreshCastDevices() {
   applyCastButtons();
 }
 
+function castFilter() {
+  const filter = { kind: state.kind };
+  if (state.year) filter.year = state.year;
+  if (state.month) filter.month = state.month;
+  if (state.day) filter.day = state.day;
+  if (state.q) filter.q = state.q;
+  if (state.rating) filter.rating = state.rating;
+  if (state.origin) filter.origin = state.origin;
+  if (state.label) filter.label = state.label;
+  if (state.person) filter.person = state.person;
+  if (state.personId) filter.personId = state.personId;
+  else if (state.others) {
+    const people = state.marks?.people || [];
+    if (people.some((item) => item.count >= 8)) {
+      const ids = people.filter((item) => item.count < 8).map((item) => item.id);
+      if (ids.length) filter.personIds = ids.join(",");
+    }
+  }
+  return filter;
+}
+
 async function castPhoto(photo, button) {
   if (!castDevice || !photo) return;
   button?.classList.add("busy");
@@ -374,7 +395,7 @@ async function castPhoto(photo, button) {
     const response = await fetch("/api/cast", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: photo.path, deviceId: castDevice.id }),
+      body: JSON.stringify({ path: photo.path, deviceId: castDevice.id, ...castFilter() }),
     });
     const data = await response.json().catch(() => ({}));
     statusEl.textContent = response.ok ? `已投屏到${data.name || castDevice.name}。` : (data.error || "没能投屏");

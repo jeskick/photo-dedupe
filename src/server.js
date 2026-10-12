@@ -13,7 +13,7 @@ import { renderPreviewJpeg, renderVideoFrame } from "./preview.js";
 import { listDrives, pairedCameraPaths } from "./library-scan.js";
 import { ensurePeopleClusters, forgetMissingPhotos, libraryCount, libraryKindTotals, libraryMarks, libraryMeta, libraryPhoto, libraryPhotoPaths, librarySettings, libraryTree, loadPeople, markRecognized, openLibrary, photoFaces, prepareRecognition, presentPaths, purgeScan, queryPhotos, removePhotos, renameFace, renamePerson, saveLibrarySettings, saveRecognition, setLibraryMeta, setRating, unrecognizedPhotoPaths, upsertPhotos } from "./library-db.js";
 import { describePhoto, readPhotoFacts } from "./photo-info.js";
-import { castPlan, castTicket, discoverScreens, dlnaHeaders, lanHostFor, pushMedia, rememberCast } from "./cast.js";
+import { castPlan, castTicket, discoverScreens, dlnaHeaders, lanHostFor, pushMedia, rememberCast, rememberPlaylist, stepPlaylist } from "./cast.js";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, "..", "public");
 const libraryDbPath = process.env.LIBRARY_DB || path.join(here, "..", "data", "library.sqlite");
@@ -352,6 +352,30 @@ function sendBytes(req, res, buffer, type) {
     "Content-Length": slice.length,
   });
   res.end(slice);
+}
+
+function castPaths(filter) {
+  const paths = [];
+  for (let offset = 0; offset < 5000; offset += 200) {
+    const rows = queryPhotos(photosDb(), {
+      year: filter.year,
+      month: filter.month,
+      day: filter.day,
+      rating: filter.rating,
+      kind: filter.kind,
+      origin: filter.origin,
+      label: filter.label,
+      person: filter.person,
+      personId: filter.personId,
+      personIds: filter.personIds,
+      q: filter.q,
+      offset,
+      limit: 200,
+    });
+    for (const row of rows) paths.push(row.path);
+    if (rows.length < 200) break;
+  }
+  return paths;
 }
 
 function loadCastDevices() {
@@ -1103,6 +1127,47 @@ async function handle(req, res) {
       return;
     }
 
+    if (req.method === "GET" && url.pathname.startsWith("/api/cast/step/")) {
+      const session = decodeURIComponent(url.pathname.slice("/api/cast/step/".length));
+      const dir = url.searchParams.get("dir") === "prev" ? "prev" : "next";
+      const moved = stepPlaylist(session, dir);
+      if (!moved) {
+        sendJson(res, 404, { error: "这组投屏已经结束" });
+        return;
+      }
+      if (moved.edge) {
+        sendJson(res, 200, { url: "", kind: "", edge: true });
+        return;
+      }
+      const next = libraryPhoto(photosDb(), path.resolve(moved.path));
+      if (!next || !fs.existsSync(next.path)) {
+        sendJson(res, 404, { error: "下一张已经不在" });
+        return;
+      }
+      const nextPlan = castPlan(next.ext);
+      if (nextPlan.mode === "jpeg") {
+        try {
+          await renderPreviewJpeg(next.path, `${next.size}:${next.mtimeMs}`, 1600);
+        } catch {
+          sendJson(res, 422, { error: "这张照片转不成电视能看的格式" });
+          return;
+        }
+      }
+      const nextBase = castBase(req, "");
+      const nextToken = rememberCast({
+        path: next.path,
+        mime: nextPlan.mime,
+        mode: nextPlan.mode,
+        stamp: `${next.size}:${next.mtimeMs}`,
+      });
+      sendJson(res, 200, {
+        url: `${nextBase}/api/cast/file/${nextToken}${nextPlan.suffix}`,
+        kind: nextPlan.kind,
+        edge: moved.edge,
+      });
+      return;
+    }
+
     if ((req.method === "GET" || req.method === "HEAD") && url.pathname.startsWith("/api/cast/file/")) {
       const leaf = decodeURIComponent(url.pathname.slice("/api/cast/file/".length));
       const token = leaf.replace(/\.[^.]+$/, "");
@@ -1171,12 +1236,20 @@ async function handle(req, res) {
         mode: plan.mode,
         stamp: `${photo.size}:${photo.mtimeMs}`,
       });
+      const playlist = castPaths(body);
+      let index = playlist.findIndex((item) => item.toLowerCase() === photo.path.toLowerCase());
+      if (index < 0) {
+        playlist.splice(0, playlist.length, photo.path);
+        index = 0;
+      }
+      const session = rememberPlaylist(playlist, index);
       try {
         await pushMedia(device, {
           url: `${base}/api/cast/file/${token}${plan.suffix}`,
           mime: plan.mime,
           title: photo.name,
           kind: plan.kind,
+          step: session ? `${base}/api/cast/step/${session}` : "",
         });
       } catch (error) {
         sendJson(res, 502, { error: error.message || "没能投屏" });

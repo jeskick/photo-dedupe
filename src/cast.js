@@ -19,6 +19,7 @@ const VIDEO_TYPES = {
 };
 
 const tickets = new Map();
+const playlists = new Map();
 
 export function castPlan(ext) {
   const lower = String(ext || "").toLowerCase();
@@ -61,6 +62,30 @@ export function rememberCast(ticket) {
   const token = randomBytes(9).toString("hex");
   tickets.set(token, { ...ticket, expires: now + 2 * 60 * 60 * 1000 });
   return token;
+}
+
+export function rememberPlaylist(paths, index) {
+  const now = Date.now();
+  for (const [key, item] of playlists) {
+    if (item.expires < now) playlists.delete(key);
+  }
+  const list = (paths || []).map((item) => String(item || "")).filter(Boolean);
+  if (!list.length) return "";
+  const token = randomBytes(9).toString("hex");
+  const at = Math.min(Math.max(0, Number(index) || 0), list.length - 1);
+  playlists.set(token, { paths: list, index: at, expires: now + 2 * 60 * 60 * 1000 });
+  return token;
+}
+
+export function stepPlaylist(token, dir) {
+  const item = playlists.get(String(token || ""));
+  if (!item || item.expires < Date.now()) return null;
+  const next = item.index + (dir === "prev" ? -1 : 1);
+  if (next < 0 || next >= item.paths.length) {
+    return { path: item.paths[item.index], index: item.index, edge: true };
+  }
+  item.index = next;
+  return { path: item.paths[next], index: next, edge: false };
 }
 
 export function castTicket(token) {
@@ -294,6 +319,7 @@ async function pushLauncher(host, packageName, media) {
     `${packageName}/com.kk.tvlauncher.ui.CastPlayActivity`,
     "--es", "url", media.url,
     "--es", "kind", media.kind || "image",
+    "--es", "step", media.step || "",
   ]);
   if (/unauthorized|failed to authenticate/i.test(view)) {
     throw new Error("请在电视上点「允许」调试，然后再投一次");

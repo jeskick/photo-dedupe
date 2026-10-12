@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { castPlan, castTicket, chooseCastDevices, lanHostFor, parseLauncherInfo, parseRendererDescription, rememberCast, soapBody, subnetHosts } from "../src/cast.js";
+import { castPlan, castTicket, chooseCastDevices, lanHostFor, parseLauncherInfo, parseRendererDescription, rememberCast, rememberPlaylist, soapBody, stepPlaylist, subnetHosts } from "../src/cast.js";
 
 const renderer = `<?xml version="1.0"?>
 <root>
@@ -55,6 +55,14 @@ test("桌面启动器优先于只应答不显示的投屏服务", () => {
   assert.equal(chooseCastDevices([], [dlna], ["192.168.8.223"])[0].kind, "android");
   assert.equal(subnetHosts(["192.168.8.147"]).includes("192.168.8.223"), true);
   assert.equal(subnetHosts(["127.0.0.1"]).length, 0);
+});
+
+test("遥控器左右键在当前这组照片里移动", () => {
+  const token = rememberPlaylist(["a.jpg", "b.jpg", "c.jpg"], 1);
+  assert.equal(stepPlaylist(token, "prev").path, "a.jpg");
+  assert.equal(stepPlaylist(token, "prev").edge, true);
+  assert.equal(stepPlaylist(token, "next").path, "b.jpg");
+  assert.equal(stepPlaylist("missing", "next"), null);
 });
 
 test("投屏链接只在有效期内能找到原文件", () => {
