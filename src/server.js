@@ -13,6 +13,7 @@ import { renderPreviewJpeg, renderVideoFrame } from "./preview.js";
 import { listDrives, pairedCameraPaths } from "./library-scan.js";
 import { ensurePeopleClusters, forgetMissingPhotos, libraryCount, libraryKindTotals, libraryMarks, libraryMeta, libraryPhoto, libraryPhotoPaths, librarySettings, libraryTree, loadPeople, markRecognized, openLibrary, photoFaces, prepareRecognition, presentPaths, purgeScan, queryPhotos, removePhotos, renameFace, renamePerson, saveLibrarySettings, saveRecognition, setLibraryMeta, setRating, unrecognizedPhotoPaths, upsertPhotos } from "./library-db.js";
 import { describePhoto, readPhotoFacts } from "./photo-info.js";
+import { castPlan, castTicket, discoverRenderers, dlnaHeaders, lanHostFor, pushMedia, rememberCast } from "./cast.js";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, "..", "public");
 const libraryDbPath = process.env.LIBRARY_DB || path.join(here, "..", "data", "library.sqlite");
@@ -21,6 +22,8 @@ let libraryDb = null;
 let libraryJob = null;
 let recognizeJob = null;
 let recognizeNote = "";
+let listenPort = 0;
+let castCache = { at: 0, devices: [], pending: null };
 
 function photosDb() {
   if (!libraryDb) libraryDb = openLibrary(libraryDbPath);
@@ -267,7 +270,7 @@ const VIDEO_TYPES = {
   ".m2ts": "video/mp2t",
 };
 
-function streamFile(req, res, filePath, type) {
+function streamFile(req, res, filePath, type, options = {}) {
   let size;
   try {
     size = fs.statSync(filePath).size;
@@ -280,6 +283,7 @@ function streamFile(req, res, filePath, type) {
     "Accept-Ranges": "bytes",
     "Cache-Control": "private, max-age=3600",
     "X-Content-Type-Options": "nosniff",
+    ...(options.headers || {}),
   };
   const match = /bytes=(\d*)-(\d*)/.exec(req.headers.range || "");
   let start = 0;
@@ -293,7 +297,7 @@ function streamFile(req, res, filePath, type) {
       return;
     }
     end = Math.min(end, size - 1);
-    if (!match[2] && end - start + 1 > 8 * 1024 * 1024) end = start + 8 * 1024 * 1024 - 1;
+    if (!options.uncapped && !match[2] && end - start + 1 > 8 * 1024 * 1024) end = start + 8 * 1024 * 1024 - 1;
   }
   const stream = fs.createReadStream(filePath, { start, end });
   stream.on("error", () => {
@@ -311,6 +315,68 @@ function streamFile(req, res, filePath, type) {
     res.writeHead(200, { ...header, "Content-Length": size });
   }
   stream.pipe(res);
+}
+
+function sendBytes(req, res, buffer, type) {
+  const size = buffer.length;
+  const header = {
+    "Content-Type": type,
+    "Accept-Ranges": "bytes",
+    "Cache-Control": "private, max-age=600",
+    "X-Content-Type-Options": "nosniff",
+    ...dlnaHeaders(),
+  };
+  if (req.method === "HEAD") {
+    res.writeHead(200, { ...header, "Content-Length": size });
+    res.end();
+    return;
+  }
+  const match = /bytes=(\d*)-(\d*)/.exec(req.headers.range || "");
+  if (!match) {
+    res.writeHead(200, { ...header, "Content-Length": size });
+    res.end(buffer);
+    return;
+  }
+  let start = match[1] ? Number(match[1]) : 0;
+  let end = match[2] ? Number(match[2]) : size - 1;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start >= size || start > end) {
+    res.writeHead(416, { "Content-Range": `bytes */${size}` });
+    res.end();
+    return;
+  }
+  end = Math.min(end, size - 1);
+  const slice = buffer.subarray(start, end + 1);
+  res.writeHead(206, {
+    ...header,
+    "Content-Range": `bytes ${start}-${end}/${size}`,
+    "Content-Length": slice.length,
+  });
+  res.end(slice);
+}
+
+function loadCastDevices() {
+  if (castCache.pending) return castCache.pending;
+  const run = discoverRenderers().then((devices) => {
+    castCache = { at: Date.now(), devices, pending: null };
+    return devices;
+  }).catch(() => {
+    castCache = { ...castCache, pending: null };
+    return castCache.devices;
+  });
+  castCache.pending = run;
+  return run;
+}
+
+function currentCastDevices() {
+  if (castCache.at && Date.now() - castCache.at < 15000) return Promise.resolve(castCache.devices);
+  return loadCastDevices();
+}
+
+function castBase(req, deviceHost) {
+  const hostname = String(req.headers.host || "").split(":")[0];
+  const local = hostname && hostname !== "127.0.0.1" && hostname !== "localhost" && hostname !== "[::1]";
+  const host = local ? hostname : lanHostFor(deviceHost, lanAddresses());
+  return host ? `http://${host}:${listenPort}` : "";
 }
 
 function readBody(req) {
@@ -1031,6 +1097,95 @@ async function handle(req, res) {
       return;
     }
 
+    if (req.method === "GET" && url.pathname === "/api/cast/devices") {
+      const devices = await currentCastDevices();
+      sendJson(res, 200, { devices: devices.map((device) => ({ id: device.id, name: device.name })) });
+      return;
+    }
+
+    if ((req.method === "GET" || req.method === "HEAD") && url.pathname.startsWith("/api/cast/file/")) {
+      const leaf = decodeURIComponent(url.pathname.slice("/api/cast/file/".length));
+      const token = leaf.replace(/\.[^.]+$/, "");
+      const ticket = castTicket(token);
+      const photo = ticket ? libraryPhoto(photosDb(), ticket.path) : null;
+      if (!ticket || !photo || !fs.existsSync(photo.path)) {
+        sendJson(res, 404, { error: "投屏文件不在了" });
+        return;
+      }
+      if (ticket.mode === "jpeg") {
+        try {
+          const jpeg = await renderPreviewJpeg(photo.path, ticket.stamp, 1600);
+          sendBytes(req, res, jpeg, "image/jpeg");
+        } catch {
+          sendJson(res, 422, { error: "这张照片转不成电视能看的格式" });
+        }
+        return;
+      }
+      if (req.method === "HEAD") {
+        const size = fs.statSync(photo.path).size;
+        res.writeHead(200, {
+          "Content-Type": ticket.mime,
+          "Accept-Ranges": "bytes",
+          "Content-Length": size,
+          "Cache-Control": "private, max-age=3600",
+          "X-Content-Type-Options": "nosniff",
+          ...dlnaHeaders(),
+        });
+        res.end();
+        return;
+      }
+      streamFile(req, res, photo.path, ticket.mime, { uncapped: true, headers: dlnaHeaders() });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/cast") {
+      const body = await readBody(req);
+      const photo = libraryPhoto(photosDb(), path.resolve(String(body.path || "")));
+      if (!photo || !fs.existsSync(photo.path)) {
+        sendJson(res, 404, { error: "文件不在照片库里" });
+        return;
+      }
+      const devices = await currentCastDevices();
+      const device = devices.find((item) => item.id === String(body.deviceId || "")) || devices[0];
+      if (!device) {
+        sendJson(res, 404, { error: "局域网里没有可投屏的电视" });
+        return;
+      }
+      const plan = castPlan(photo.ext);
+      if (plan.mode === "jpeg") {
+        try {
+          await renderPreviewJpeg(photo.path, `${photo.size}:${photo.mtimeMs}`, 1600);
+        } catch {
+          sendJson(res, 422, { error: "这张照片转不成电视能看的格式" });
+          return;
+        }
+      }
+      const base = castBase(req, new URL(device.controlUrl).hostname);
+      if (!base) {
+        sendJson(res, 500, { error: "这台电脑没有局域网地址" });
+        return;
+      }
+      const token = rememberCast({
+        path: photo.path,
+        mime: plan.mime,
+        mode: plan.mode,
+        stamp: `${photo.size}:${photo.mtimeMs}`,
+      });
+      try {
+        await pushMedia(device, {
+          url: `${base}/api/cast/file/${token}${plan.suffix}`,
+          mime: plan.mime,
+          title: photo.name,
+          kind: plan.kind,
+        });
+      } catch (error) {
+        sendJson(res, 502, { error: error.message || "没能投屏" });
+        return;
+      }
+      sendJson(res, 200, { ok: true, name: device.name });
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/reveal") {
       const body = await readBody(req);
       const target = path.resolve(String(body.path || ""));
@@ -1091,10 +1246,14 @@ function start(port) {
     process.exit(1);
   });
   server.on("listening", () => {
+    listenPort = current;
     const local = `http://127.0.0.1:${current}/`;
     const remote = lanAddresses().map((address) => `http://${address}:${current}/`);
     console.log(`相片视频查重已启动 ${local}`);
     if (remote.length) console.log(`局域网可访问 ${remote.join("  ")}`);
+    loadCastDevices().then((devices) => {
+      if (devices.length) console.log(`可投屏 ${devices.map((device) => device.name).join("、")}`);
+    });
     if (!process.env.NO_OPEN) openBrowser(local);
   });
   server.listen(current, "0.0.0.0");

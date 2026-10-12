@@ -300,6 +300,93 @@ function trashIcon() {
   return svg;
 }
 
+function castIcon() {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  const shape = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  shape.setAttribute("fill", "currentColor");
+  shape.setAttribute("d", "M1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm0-4v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11zM21 3H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z");
+  svg.append(shape);
+  return svg;
+}
+
+let castDevice = null;
+
+function castButton(photo) {
+  const button = h("button", { class: "tool cast", type: "button", title: `投屏到${castDevice.name}` });
+  button.append(castIcon());
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    castPhoto(photo, button);
+  });
+  return button;
+}
+
+function applyCastButtons() {
+  const viewerCast = document.querySelector("#viewer-cast");
+  if (viewerCast) {
+    viewerCast.hidden = !castDevice;
+    viewerCast.title = castDevice ? `投屏到${castDevice.name}` : "投屏";
+  }
+  for (const tile of mosaicEl.querySelectorAll(".tile")) {
+    const tools = tile.querySelector(".tile-tools");
+    if (!tools) continue;
+    let actions = tools.querySelector(".tile-actions");
+    if (!actions) {
+      actions = h("div", { class: "tile-actions" });
+      const del = tools.querySelector(".del");
+      if (del) actions.append(del);
+      tools.append(actions);
+    }
+    const current = actions.querySelector(".tool.cast");
+    if (!castDevice) {
+      current?.remove();
+      continue;
+    }
+    if (current) {
+      current.title = `投屏到${castDevice.name}`;
+      continue;
+    }
+    const photo = state.photos.find((item) => item.path === tile.dataset.path);
+    if (!photo) continue;
+    const del = actions.querySelector(".del");
+    if (del) actions.insertBefore(castButton(photo), del);
+    else actions.append(castButton(photo));
+  }
+}
+
+async function refreshCastDevices() {
+  try {
+    const response = await fetch("/api/cast/devices");
+    const data = await response.json().catch(() => ({}));
+    castDevice = response.ok ? (data.devices || [])[0] || null : null;
+  } catch {
+    castDevice = null;
+  }
+  applyCastButtons();
+}
+
+async function castPhoto(photo, button) {
+  if (!castDevice || !photo) return;
+  button?.classList.add("busy");
+  try {
+    const response = await fetch("/api/cast", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: photo.path, deviceId: castDevice.id }),
+    });
+    const data = await response.json().catch(() => ({}));
+    statusEl.textContent = response.ok ? `已投屏到${data.name || castDevice.name}。` : (data.error || "没能投屏");
+    if (response.ok) {
+      button?.classList.add("on");
+      setTimeout(() => button?.classList.remove("on"), 1600);
+    }
+  } finally {
+    button?.classList.remove("busy");
+  }
+}
+
 function paintStars(stars, rating) {
   for (const button of stars.querySelectorAll(".star")) {
     button.classList.toggle("on", Number(button.dataset.value) <= rating);
@@ -526,7 +613,10 @@ function makeTile(photo) {
     deletePhoto(photo);
   });
   rate.append(toggle, stars);
-  tools.append(rate, del);
+  const actions = h("div", { class: "tile-actions" });
+  if (castDevice) actions.append(castButton(photo));
+  actions.append(del);
+  tools.append(rate, actions);
   tools.addEventListener("click", (event) => event.stopPropagation());
   tools.addEventListener("dblclick", (event) => {
     event.preventDefault();
@@ -1322,6 +1412,10 @@ document.querySelector("#viewer-delete").addEventListener("click", () => {
   const photo = state.photos[state.open];
   if (photo) deletePhoto(photo);
 });
+document.querySelector("#viewer-cast").addEventListener("click", () => {
+  const photo = state.photos[state.open];
+  if (photo) castPhoto(photo, document.querySelector("#viewer-cast"));
+});
 document.querySelector("#viewer-open").addEventListener("click", () => {
   const photo = state.photos[state.open];
   if (photo) reveal(photo.path);
@@ -1361,6 +1455,7 @@ window.addEventListener("keydown", (event) => {
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible") return;
   syncLibrary();
+  refreshCastDevices();
 });
 
 async function syncLibrary() {
@@ -1396,6 +1491,7 @@ loadSettings().then(() => refreshQuiet()).then(async (data) => {
   }
   await loadMarks();
   await loadTree();
+  refreshCastDevices();
   await loadPhotos(true);
   if (data.recognizing) watchRecognize();
   if (data.scanning) watchScan();
