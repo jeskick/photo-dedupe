@@ -1,6 +1,13 @@
 import dgram from "node:dgram";
+import fs from "node:fs";
 import http from "node:http";
+import net from "node:net";
+import path from "node:path";
+import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { fileURLToPath } from "node:url";
+
+export const LAUNCHER_PORT = 9978;
 
 const VIDEO_TYPES = {
   ".mp4": "video/mp4",
@@ -161,7 +168,134 @@ function soap(controlUrl, action, fields) {
   });
 }
 
+export function parseLauncherInfo(body, host) {
+  let data = body;
+  if (typeof body === "string") {
+    try { data = JSON.parse(body); } catch { return null; }
+  }
+  if (!data || data.ok !== true || !data.name) return null;
+  return {
+    id: `launcher:${host}`,
+    name: String(data.name),
+    controlUrl: `http://${host}:${LAUNCHER_PORT}/cast/play`,
+    host,
+    kind: "launcher",
+  };
+}
+
+export function subnetHosts(addresses) {
+  const hosts = [];
+  for (const address of addresses || []) {
+    const parts = String(address).split(".");
+    if (parts.length !== 4 || parts[0] === "127") continue;
+    const prefix = parts.slice(0, 3).join(".");
+    for (let index = 1; index <= 254; index += 1) hosts.push(`${prefix}.${index}`);
+  }
+  return [...new Set(hosts)];
+}
+
+export function chooseCastDevices(launchers, renderers, androidHosts = []) {
+  const ready = (launchers || []).filter(Boolean);
+  if (ready.length) return ready;
+  const android = new Set(androidHosts);
+  const picked = [];
+  const seen = new Set();
+  for (const device of renderers || []) {
+    let host = "";
+    try { host = new URL(device.controlUrl).hostname; } catch { host = ""; }
+    if (!host || !android.has(host) || seen.has(host)) continue;
+    seen.add(host);
+    picked.push({ ...device, host, kind: "android", name: "索尼电视" });
+  }
+  if (picked.length) return picked;
+  return (renderers || []).map((device) => ({ ...device, kind: "dlna" }));
+}
+
+function adbExecutable() {
+  if (process.env.ADB && fs.existsSync(process.env.ADB)) return process.env.ADB;
+  const bundled = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", ".tools", "platform-tools", process.platform === "win32" ? "adb.exe" : "adb");
+  if (fs.existsSync(bundled)) return bundled;
+  const temp = path.join(process.env.TEMP || process.env.TMP || "", "platform-tools", process.platform === "win32" ? "adb.exe" : "adb");
+  if (fs.existsSync(temp)) return temp;
+  return "adb";
+}
+
+function runAdb(args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(adbExecutable(), args, { windowsHide: true });
+    let out = "";
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error("电视没有响应调试"));
+    }, 8000);
+    child.stdout.on("data", (chunk) => { out += chunk.toString("utf8"); });
+    child.stderr.on("data", (chunk) => { out += chunk.toString("utf8"); });
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on("close", () => {
+      clearTimeout(timer);
+      resolve(out);
+    });
+  });
+}
+
+async function pushAndroid(host, media) {
+  const connect = await runAdb(["connect", `${host}:5555`]);
+  if (/unauthorized|failed to authenticate|无法连接/i.test(connect)) {
+    throw new Error("请在电视上点「允许」调试，然后再投一次");
+  }
+  const component = media.kind === "video"
+    ? "com.sony.dtv.smartmediaapp/com.sonyericsson.video.player.PlayerActivity"
+    : "com.sony.dtv.smartmediaapp/.SlideshowPermissionActivity";
+  await runAdb(["-s", `${host}:5555`, "shell", "am", "force-stop", "com.sony.dtv.smartmediaapp"]).catch(() => {});
+  let view = await runAdb(["-s", `${host}:5555`, "shell", "am", "start", "-n", component, "-a", "android.intent.action.VIEW", "-d", media.url, "-t", media.mime]);
+  if (/Error|Exception|unable to resolve/i.test(view)) {
+    view = await runAdb(["-s", `${host}:5555`, "shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", media.url, "-t", media.mime]);
+  }
+  if (/unauthorized|failed to authenticate/i.test(view)) {
+    throw new Error("请在电视上点「允许」调试，然后再投一次");
+  }
+  if (/Error|Exception/i.test(view)) throw new Error("电视没有打开这张照片");
+}
+
+function postJson(target, payload) {
+  const body = Buffer.from(JSON.stringify(payload));
+  const url = new URL(target);
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      method: "POST",
+      hostname: url.hostname,
+      port: url.port || 80,
+      path: url.pathname,
+      headers: { "Content-Type": "application/json", "Content-Length": body.length },
+      timeout: 8000,
+    }, (res) => {
+      res.resume();
+      if ((res.statusCode || 500) >= 400) reject(new Error("桌面没有接住投屏"));
+      else resolve();
+    });
+    req.on("error", reject);
+    req.on("timeout", () => req.destroy(new Error("桌面没有响应")));
+    req.end(body);
+  });
+}
+
 export async function pushMedia(device, media) {
+  if (device.kind === "launcher") {
+    await postJson(device.controlUrl, {
+      url: media.url,
+      mime: media.mime,
+      title: media.title,
+      kind: media.kind,
+    });
+    return;
+  }
+  if (device.kind === "android" && device.host) {
+    await pushAndroid(device.host, media);
+    return;
+  }
   await soap(device.controlUrl, "Stop", { InstanceID: "0" }).catch(() => {});
   const set = await soap(device.controlUrl, "SetAVTransportURI", {
     InstanceID: "0",
@@ -230,7 +364,73 @@ export function discoverRenderers(timeoutMs = 2500) {
         "",
         "",
       ].join("\r\n"));
-      socket.send(msg, 1900, "239.255.255.250");
+    socket.send(msg, 1900, "239.255.255.250");
     });
   });
+}
+
+function portOpen(host, port, timeoutMs = 400) {
+  return new Promise((resolve) => {
+    const socket = net.connect({ host, port, timeout: timeoutMs });
+    let done = false;
+    const finish = (open) => {
+      if (done) return;
+      done = true;
+      socket.destroy();
+      resolve(open);
+    };
+    socket.on("connect", () => finish(true));
+    socket.on("timeout", () => finish(false));
+    socket.on("error", () => finish(false));
+  });
+}
+
+function readLauncher(host) {
+  return new Promise((resolve) => {
+    const req = http.get({ host, port: LAUNCHER_PORT, path: "/cast/info", timeout: 800 }, (res) => {
+      const chunks = [];
+      res.on("data", (chunk) => chunks.push(chunk));
+      res.on("end", () => {
+        try { resolve(parseLauncherInfo(Buffer.concat(chunks).toString("utf8"), host)); }
+        catch { resolve(null); }
+      });
+    });
+    req.on("error", () => resolve(null));
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(null);
+    });
+  });
+}
+
+export async function discoverLaunchers(hosts) {
+  const found = [];
+  const seen = new Set();
+  for (let index = 0; index < hosts.length; index += 80) {
+    const batch = hosts.slice(index, index + 80);
+    const open = await Promise.all(batch.map(async (host) => (await portOpen(host, LAUNCHER_PORT)) ? host : ""));
+    const infos = await Promise.all(open.filter(Boolean).map(readLauncher));
+    for (const device of infos) {
+      if (!device || seen.has(device.id)) continue;
+      seen.add(device.id);
+      found.push(device);
+    }
+  }
+  return found;
+}
+
+export async function discoverScreens(addresses) {
+  const [renderers, launchers] = await Promise.all([
+    discoverRenderers(),
+    discoverLaunchers(subnetHosts(addresses)),
+  ]);
+  if (launchers.length) return launchers;
+  const hosts = [...new Set(renderers.map((device) => {
+    try { return new URL(device.controlUrl).hostname; } catch { return ""; }
+  }).filter(Boolean))];
+  const android = [];
+  await Promise.all(hosts.map(async (host) => {
+    if (await portOpen(host, 5555, 700)) android.push(host);
+  }));
+  return chooseCastDevices([], renderers, android);
 }

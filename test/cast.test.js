@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { castPlan, castTicket, lanHostFor, parseRendererDescription, rememberCast, soapBody } from "../src/cast.js";
+import { castPlan, castTicket, chooseCastDevices, lanHostFor, parseLauncherInfo, parseRendererDescription, rememberCast, soapBody, subnetHosts } from "../src/cast.js";
 
 const renderer = `<?xml version="1.0"?>
 <root>
@@ -42,6 +42,18 @@ test("投屏指令会转义标题和地址", () => {
   assert.match(body, /A &amp; B/);
   assert.match(body, /a&amp;b\.jpg/);
   assert.doesNotMatch(body, /<dc:title>/);
+});
+
+test("桌面启动器优先于只应答不显示的投屏服务", () => {
+  const launcher = parseLauncherInfo('{"ok":true,"name":"KK桌面"}', "192.168.8.223");
+  assert.equal(launcher.kind, "launcher");
+  assert.equal(launcher.name, "KK桌面");
+  assert.equal(parseLauncherInfo('{"ok":false}', "192.168.8.223"), null);
+  const dlna = { id: "bili", name: "我的小电视", controlUrl: "http://192.168.8.223:9958/bilibili/control.xml" };
+  assert.equal(chooseCastDevices([launcher], [dlna])[0].kind, "launcher");
+  assert.equal(chooseCastDevices([], [dlna], ["192.168.8.223"])[0].kind, "android");
+  assert.equal(subnetHosts(["192.168.8.147"]).includes("192.168.8.223"), true);
+  assert.equal(subnetHosts(["127.0.0.1"]).length, 0);
 });
 
 test("投屏链接只在有效期内能找到原文件", () => {

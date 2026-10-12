@@ -13,7 +13,7 @@ import { renderPreviewJpeg, renderVideoFrame } from "./preview.js";
 import { listDrives, pairedCameraPaths } from "./library-scan.js";
 import { ensurePeopleClusters, forgetMissingPhotos, libraryCount, libraryKindTotals, libraryMarks, libraryMeta, libraryPhoto, libraryPhotoPaths, librarySettings, libraryTree, loadPeople, markRecognized, openLibrary, photoFaces, prepareRecognition, presentPaths, purgeScan, queryPhotos, removePhotos, renameFace, renamePerson, saveLibrarySettings, saveRecognition, setLibraryMeta, setRating, unrecognizedPhotoPaths, upsertPhotos } from "./library-db.js";
 import { describePhoto, readPhotoFacts } from "./photo-info.js";
-import { castPlan, castTicket, discoverRenderers, dlnaHeaders, lanHostFor, pushMedia, rememberCast } from "./cast.js";
+import { castPlan, castTicket, discoverScreens, dlnaHeaders, lanHostFor, pushMedia, rememberCast } from "./cast.js";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, "..", "public");
 const libraryDbPath = process.env.LIBRARY_DB || path.join(here, "..", "data", "library.sqlite");
@@ -356,7 +356,7 @@ function sendBytes(req, res, buffer, type) {
 
 function loadCastDevices() {
   if (castCache.pending) return castCache.pending;
-  const run = discoverRenderers().then((devices) => {
+  const run = discoverScreens(lanAddresses()).then((devices) => {
     castCache = { at: Date.now(), devices, pending: null };
     return devices;
   }).catch(() => {
