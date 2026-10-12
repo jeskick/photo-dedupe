@@ -174,11 +174,13 @@ export function parseLauncherInfo(body, host) {
     try { data = JSON.parse(body); } catch { return null; }
   }
   if (!data || data.ok !== true || !data.name) return null;
+  const packageName = /^[a-zA-Z0-9_.]+$/.test(String(data.package || "")) ? String(data.package) : "";
   return {
     id: `launcher:${host}`,
     name: String(data.name),
     controlUrl: `http://${host}:${LAUNCHER_PORT}/cast/play`,
     host,
+    packageName,
     kind: "launcher",
   };
 }
@@ -282,8 +284,29 @@ function postJson(target, payload) {
   });
 }
 
+async function pushLauncher(host, packageName, media) {
+  const connect = await runAdb(["connect", `${host}:5555`]);
+  if (/unauthorized|failed to authenticate|无法连接/i.test(connect)) {
+    throw new Error("请在电视上点「允许」调试，然后再投一次");
+  }
+  const view = await runAdb([
+    "-s", `${host}:5555`, "shell", "am", "start", "-n",
+    `${packageName}/com.kk.tvlauncher.ui.CastPlayActivity`,
+    "--es", "url", media.url,
+    "--es", "kind", media.kind || "image",
+  ]);
+  if (/unauthorized|failed to authenticate/i.test(view)) {
+    throw new Error("请在电视上点「允许」调试，然后再投一次");
+  }
+  if (/Error|Exception|does not exist|unable to resolve/i.test(view)) throw new Error("桌面没有打开这张照片");
+}
+
 export async function pushMedia(device, media) {
   if (device.kind === "launcher") {
+    if (device.packageName && device.host) {
+      await pushLauncher(device.host, device.packageName, media);
+      return;
+    }
     await postJson(device.controlUrl, {
       url: media.url,
       mime: media.mime,

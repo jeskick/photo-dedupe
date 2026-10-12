@@ -45,9 +45,10 @@ test("投屏指令会转义标题和地址", () => {
 });
 
 test("桌面启动器优先于只应答不显示的投屏服务", () => {
-  const launcher = parseLauncherInfo('{"ok":true,"name":"KK桌面"}', "192.168.8.223");
+  const launcher = parseLauncherInfo('{"ok":true,"name":"KK桌面","package":"com.kk.tvlauncher"}', "192.168.8.223");
   assert.equal(launcher.kind, "launcher");
   assert.equal(launcher.name, "KK桌面");
+  assert.equal(launcher.packageName, "com.kk.tvlauncher");
   assert.equal(parseLauncherInfo('{"ok":false}', "192.168.8.223"), null);
   const dlna = { id: "bili", name: "我的小电视", controlUrl: "http://192.168.8.223:9958/bilibili/control.xml" };
   assert.equal(chooseCastDevices([launcher], [dlna])[0].kind, "launcher");
