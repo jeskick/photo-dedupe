@@ -44,19 +44,22 @@ test("投屏指令会转义标题和地址", () => {
   assert.doesNotMatch(body, /<dc:title>/);
 });
 
-test("桌面启动器优先于只应答不显示的投屏服务", () => {
+test("桌面在线时排在最前，没有桌面时使用其它 DLNA 设备", () => {
   const launcher = parseLauncherInfo('{"ok":true,"name":"KK桌面","package":"com.kk.tvlauncher"}', "192.168.8.223");
   assert.equal(launcher.kind, "launcher");
   assert.equal(launcher.name, "KK桌面");
   assert.equal(launcher.packageName, "com.kk.tvlauncher");
   assert.equal(parseLauncherInfo('{"ok":false}', "192.168.8.223"), null);
-  const dlna = { id: "bili", name: "我的小电视", controlUrl: "http://192.168.8.223:9958/bilibili/control.xml" };
-  const picked = chooseCastDevices([launcher], [dlna], ["192.168.8.223"]);
+  const dlna = { id: "living-room", name: "客厅电视", controlUrl: "http://192.168.8.50:49152/control.xml" };
+  const picked = chooseCastDevices([launcher], [dlna]);
   assert.equal(picked[0].kind, "launcher");
-  assert.equal(picked[1].kind, "android");
-  assert.equal(picked[1].name, "索尼电视");
-  assert.equal(chooseCastDevices([], [dlna], ["192.168.8.223"])[0].kind, "android");
-  assert.equal(chooseCastDevices([], [dlna]).length, 0);
+  assert.equal(picked[0].name, "KK桌面");
+  assert.equal(picked[1].kind, "dlna");
+  assert.equal(picked[1].name, "客厅电视");
+  const onlyDlna = chooseCastDevices([], [dlna]);
+  assert.equal(onlyDlna.length, 1);
+  assert.equal(onlyDlna[0].kind, "dlna");
+  assert.equal(onlyDlna[0].name, "客厅电视");
   assert.equal(subnetHosts(["192.168.8.147"]).includes("192.168.8.223"), true);
   assert.equal(subnetHosts(["127.0.0.1"]).length, 0);
 });

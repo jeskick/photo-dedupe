@@ -221,19 +221,19 @@ export function subnetHosts(addresses) {
   return [...new Set(hosts)];
 }
 
-export function chooseCastDevices(launchers, renderers, androidHosts = []) {
+export function chooseCastDevices(launchers, renderers) {
   const ready = (launchers || []).filter(Boolean);
-  const android = new Set(androidHosts);
-  const systems = [];
-  const seen = new Set();
+  const seen = new Set(ready.map((device) => device.id));
+  const others = [];
   for (const device of renderers || []) {
+    if (!device?.controlUrl || seen.has(device.id)) continue;
     let host = "";
-    try { host = new URL(device.controlUrl).hostname; } catch { host = ""; }
-    if (!host || !android.has(host) || seen.has(host)) continue;
-    seen.add(host);
-    systems.push({ ...device, host, kind: "android", name: "索尼电视" });
+    try { host = new URL(device.controlUrl).hostname; } catch { continue; }
+    if (!host) continue;
+    seen.add(device.id);
+    others.push({ ...device, host, kind: "dlna", name: device.name });
   }
-  return [...ready, ...systems];
+  return [...ready, ...others];
 }
 
 export function bitrateFromBoxes(buf, size) {
@@ -521,16 +521,5 @@ export async function discoverScreens(addresses) {
     discoverRenderers(),
     discoverLaunchers(subnetHosts(addresses)),
   ]);
-  const hosts = new Set();
-  for (const device of renderers) {
-    try { hosts.add(new URL(device.controlUrl).hostname); } catch { /* skip */ }
-  }
-  for (const device of launchers) {
-    if (device.host) hosts.add(device.host);
-  }
-  const android = [];
-  await Promise.all([...hosts].map(async (host) => {
-    if (await portOpen(host, 5555, 700)) android.push(host);
-  }));
-  return chooseCastDevices(launchers, renderers, android);
+  return chooseCastDevices(launchers, renderers);
 }
