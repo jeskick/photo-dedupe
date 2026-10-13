@@ -9,6 +9,7 @@ const script = path.join(root, "python", "phash_files.py");
 function pythonCandidates() {
   const local = process.env.LOCALAPPDATA;
   return [
+    path.join("D:\\AI_DATA", "photo-dedupe", "venv", "Scripts", "python.exe"),
     path.join(root, ".venv", "Scripts", "python.exe"),
     local ? path.join(local, "Programs", "Python", "Python312", "python.exe") : "",
     local ? path.join(local, "Programs", "Python", "Python313", "python.exe") : "",

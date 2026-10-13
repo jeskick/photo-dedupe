@@ -8,13 +8,14 @@ if errorlevel 1 (
   exit /b 1
 )
 
+set "VENV=D:\AI_DATA\photo-dedupe\venv"
 call :pickpython
-if exist ".venv\Scripts\python.exe" (
-  ".venv\Scripts\python.exe" -c "import sys; raise SystemExit(0 if 'free-threading' not in sys.version else 1)" >nul 2>nul
+if exist "%VENV%\Scripts\python.exe" (
+  "%VENV%\Scripts\python.exe" -c "import sys; raise SystemExit(0 if 'free-threading' not in sys.version else 1)" >nul 2>nul
   if errorlevel 1 (
     if defined PYLAUNCH (
       echo 当前画面比对环境是免 GIL 的 Python，预编译库装不上，正在改用普通 Python...
-      rmdir /s /q ".venv"
+      rmdir /s /q "%VENV%"
     ) else (
       echo 免 GIL 的 Python 装不上画面比对库。完全相同的文件仍可查重。
       echo 请安装普通 Python 3.12：https://www.python.org/downloads/
@@ -22,24 +23,24 @@ if exist ".venv\Scripts\python.exe" (
   )
 )
 
-if not exist ".venv\Scripts\python.exe" (
+if not exist "%VENV%\Scripts\python.exe" (
   if not defined PYLAUNCH (
     echo 未找到可用的 Python。完全相同的文件仍可查重。
     echo 画面相似和 HEIC 预览需要普通 Python 3.12：https://www.python.org/downloads/
     goto start
   )
   echo 正在准备画面比对环境，第一次需要联网，请稍候...
-  %PYLAUNCH% -m venv .venv
-  if not exist ".venv\Scripts\python.exe" (
+  %PYLAUNCH% -m venv "%VENV%"
+  if not exist "%VENV%\Scripts\python.exe" (
     echo Python 环境没有准备好，将只查重内容完全相同的文件。
     goto start
   )
 )
 
-".venv\Scripts\python.exe" -c "import PIL, imagehash, pillow_heif" >nul 2>nul
+"%VENV%\Scripts\python.exe" -c "import PIL, imagehash, pillow_heif" >nul 2>nul
 if errorlevel 1 (
   echo 正在安装画面比对库，需要联网，请稍候...
-  ".venv\Scripts\python.exe" -m pip install --only-binary=pillow,numpy,scipy,PyWavelets,pillow-heif -r python\requirements.txt
+  "%VENV%\Scripts\python.exe" -m pip install --cache-dir D:\AI_DATA\pip-cache --only-binary=pillow,numpy,scipy,PyWavelets,pillow-heif -r python\requirements.txt
   if errorlevel 1 (
     echo 画面比对库安装失败。完全相同的文件仍可查重。
   )
@@ -54,10 +55,10 @@ if not exist "%SystemRoot%\System32\vcruntime140_1.dll" (
   )
 )
 
-".venv\Scripts\python.exe" -c "import insightface, onnxruntime, cv2" >nul 2>nul
+"%VENV%\Scripts\python.exe" -c "import insightface, onnxruntime, cv2" >nul 2>nul
 if errorlevel 1 (
   echo 正在安装人物识别组件，需要联网。装不上也不影响浏览和查重。
-  ".venv\Scripts\python.exe" -m pip install insightface onnxruntime opencv-python-headless
+  "%VENV%\Scripts\python.exe" -m pip install --cache-dir D:\AI_DATA\pip-cache insightface onnxruntime opencv-python-headless
 )
 
 :start
@@ -67,6 +68,15 @@ exit /b 0
 
 :pickpython
 set "PYLAUNCH="
+for /d %%D in ("D:\AI_DATA\python\cpython-3.12*") do (
+  if exist "%%D\python.exe" (
+    "%%D\python.exe" -c "import sys; raise SystemExit(0 if 'free-threading' not in sys.version else 1)" >nul 2>nul
+    if not errorlevel 1 (
+      set "PYLAUNCH=%%D\python.exe"
+      goto :eof
+    )
+  )
+)
 where py >nul 2>nul
 if errorlevel 1 goto pickplain
 py -3.12 -c "import sys; raise SystemExit(0 if 'free-threading' not in sys.version else 1)" >nul 2>nul
