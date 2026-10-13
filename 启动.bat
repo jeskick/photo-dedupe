@@ -62,6 +62,11 @@ if errorlevel 1 (
 )
 
 :start
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install-boot-task.ps1" -Bat "%~dp0开机启动.bat" >nul 2>nul
+if errorlevel 2 (
+  echo 正在登记开机自动运行，请允许本次管理员权限...
+  powershell -NoProfile -Command "Start-Process -FilePath powershell.exe -Verb RunAs -Wait -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','%~dp0install-boot-task.ps1','-Bat','%~dp0开机启动.bat'"
+)
 node src\server.js
 if errorlevel 1 pause
 exit /b 0
